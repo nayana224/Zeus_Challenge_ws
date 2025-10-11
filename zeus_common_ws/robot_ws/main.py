@@ -40,7 +40,6 @@ def main():
                 
                 # 8) 목표 도안 home
                 rb.motionparam(MotionParam(jnt_speed=40, lin_speed=20, acctime=0.3, dacctime=0.3))
-                rb.reljntmove(dj1=-180)
                 print_current_pose(rb, "Picking Sequence")
                 
                 # 9) 집은 블록의 color을 통해 목표 위치, 조정할 angle 정보 추출
