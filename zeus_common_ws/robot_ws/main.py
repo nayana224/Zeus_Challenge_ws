@@ -21,6 +21,8 @@ def main():
                 # 2) 홈 이동
                 move_to_home(rb)
                 print_current_pose(rb, "AFTER_HOME")
+                
+                time.sleep(1)
 
                 # -----------------------------
                 # [픽] 카메라로부터 블록 위치 수신 → TCP로 변환 → 픽

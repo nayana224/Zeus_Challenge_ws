@@ -93,7 +93,10 @@ def rotate_and_home(rb, delta_deg):
     if delta_deg is None:
         print("[ROT] angle None → 회전 생략")
         return
-    
+    '''
+    rb.move(Joint(72.04, 0.09, 75.16, 0.00, 104.75, 72.04 + delta_deg))
+    rb.reljntmove(dj1=-180)
+    '''
     try:
         # 1) 증분 회전이 지원되면 이 한 줄이면 끝
         rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
@@ -133,8 +136,13 @@ def pick_sequence(rb, P_tcp):
     [픽] 1) XY 평면 접근 → 2) Z로 내려감 → 3) 진공 ON → 4) Z로 복귀
     P_tcp : 상대 toolmove가 아니라, '픽까지 필요한 Δx,Δy,Δz'를 의미(프로젝트 정의 유지)
     """
+    rb.asyncm(1)
+    
     rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
     rb.toolmove(dx=P_tcp[0], dy=P_tcp[1], dz=P_tcp[2] - 40)
+    
+    rb.join()
+    rb.asyncm(2)
     
     send_vacuum_on(True)
     
@@ -161,15 +169,20 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     # 목표한 블록 위치의 각도 보정
     rz = rz + float(delta_angle)
 
+    rb.asyncm(1)
+    
     # 접근
     p_down  = Position(x, y, z + float(approach), rz, ry, rx)
     rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
-    rb.move(p_down)    
+    rb.move(p_down)
     
     # 실제로 놓기
     p_place = Position(x, y, z, rz, ry, rx)
     rb.motionparam(MotionParam(jnt_speed=5, lin_speed=40, acctime=0.2, dacctime=0.3))
-    rb.line(p_place)
+    rb.move(p_place)
+    
+    rb.asyncm(2)
+    rb.join()
     
     # 흡착 해제
     if send_vacuum_on(1):
