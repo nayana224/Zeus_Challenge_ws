@@ -11,6 +11,7 @@ from pose_table import *
 def main():
     try:
         rb = setup_robot()
+        srv, conn = init_cam_server()
 
         while True:
             try:
@@ -20,20 +21,14 @@ def main():
                 
                 # 2) 홈 이동
                 move_to_home(rb)
-                print_current_pose(rb, "AFTER_HOME")
-                
-                time.sleep(1)
+                time.sleep(2)
 
-                # -----------------------------
-                # [픽] 카메라로부터 블록 위치 수신 → TCP로 변환 → 픽
-                # -----------------------------
-                P_cam, angle_deg, color = recv_cam_info(expect_stable=True, z_min=130.0, z_max=665.0)
+                
+                P_cam, angle_deg, color = recv_cam_info(conn, expect_stable=True)
                 P_tcp = cam_to_tcp(P_cam)
                 pick_sequence(rb, P_tcp)
-                print_current_pose(rb, "After_block_approach")
 
                 # 3) 홈 복귀
-                # move_to_home(rb)
                 rotate_and_home(rb, delta_deg=angle_deg)
                 print_current_pose(rb, "After block picked")
                 
@@ -50,10 +45,16 @@ def main():
                 
                 # 현장 보정으로 z를 100 낮춰서 플레이스
                 place_sequence(rb, place_target, delta_angle, lift=150.0, approach=30.0)
-                
+            
+            
             except Robot_emo:
                 print("EMO(비상정지) 입력")
                 break
+            except socket.error:
+                print("[WARN] Camera disconnected, waiting for reconnect...")
+                srv.close()
+                time.sleep(1)
+                srv, conn = init_cam_server()
             except KeyboardInterrupt:
                 print("KeyboardInterrupt")
                 break

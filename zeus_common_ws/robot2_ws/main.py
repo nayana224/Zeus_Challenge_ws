@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 # main.py
+import traceback
 from i611_MCS import Robot_emo
 from utils import *
 from comm import *
@@ -16,28 +17,35 @@ def main():
                 # 1) 그리퍼/진공 초기화
                 grip_open()
                 send_vacuum_on(0)
-                rb.motionparam(MotionParam(jnt_speed=40, lin_speed=20, acctime=0.3, dacctime=0.3))
+                
                 # 2) 홈 이동
                 move_to_home(rb)
                 print_current_pose(rb, "AFTER_HOME")
+                
+                time.sleep(1)
 
                 # -----------------------------
                 # [픽] 카메라로부터 블록 위치 수신 → TCP로 변환 → 픽
                 # -----------------------------
-                P_cam, angle_deg, color = recv_cam_info(expect_stable=True, z_min=130.0, z_max=665.0)
+                P_cam, angle_deg, color, pose = recv_cam_info(expect_stable=True, z_min=130.0, z_max=665.0)
                 P_tcp = cam_to_tcp(P_cam)
                 pick_sequence(rb, P_tcp)
-                print_current_pose(rb, "AFTER_block_approach")
+                print_current_pose(rb, "After_block_approach")
 
-                # 3) 홈 복귀
-                move_to_home(rb)
-                rotate_by_angle(rb, delta_deg=angle_deg)
+                # 3) 회전 및 홈 복귀
+                result = rotate_and_home(rb, delta_deg=angle_deg, pose=pose)
+
+                # 회전 중단(즉, pose=False)이면 루프 처음으로
+                if not result:
+                    print("[MAIN] rotate_and_home 중단 → 루프 재시작")
+                    continue
+
+                print_current_pose(rb, "After block picked")
                 
                 
                 # 8) 목표 도안 home
-                rb.motionparam(MotionParam(jnt_speed=35, lin_speed=20, acctime=0.3, dacctime=0.3))
-                rb.reljntmove(dj1=-180)
-                rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+                rb.motionparam(MotionParam(jnt_speed=40, lin_speed=20, acctime=0.3, dacctime=0.3))
+                print_current_pose(rb, "Picking Sequence")
                 
                 # 9) 집은 블록의 color을 통해 목표 위치, 조정할 angle 정보 추출
                 eval_tcp_pose, delta_angle = get_target_pose_by_color(color)
@@ -55,8 +63,9 @@ def main():
                 print("KeyboardInterrupt")
                 break
             except Exception as e:
-                break
-                print("Error: %s" % (e))   
+                print("[ERROR] %s" % {e})
+                traceback.print_exc()
+                break   # 또는 상황에 따라 continue 
     finally:
         try:
             send_vacuum_on(0)
