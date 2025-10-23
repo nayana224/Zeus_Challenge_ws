@@ -11,6 +11,7 @@ from pose_table import *
 
 # --- 로봇 기본 파라미터 ---
 HOME_JOINT = (72.04, 0.09, 75.16, 0.00, 104.75, 72.04)
+HOME_TCP = (371.99, -15.29, 664.85,  90.0,  0.0, 180.0)
 TOOL_DEF   = (1, 0, 0, 100, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
 
 
@@ -37,8 +38,8 @@ def grip_close():
     dout(48, '1'); time.sleep(1); dout(48, '0')
 
 def move_to_home(rb):
-    rb.motionparam(MotionParam(jnt_speed=10, lin_speed=200, acctime=0.3, dacctime=0.3))
-    rb.line(Joint(*HOME_JOINT))
+    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=300, acctime=0.3, dacctime=0.3))
+    rb.move(Joint(*HOME_JOINT))
     print("홈 위치 이동 완료")
 
 def print_current_pose(rb, label="NOW"):
@@ -64,6 +65,9 @@ def get_current_tcp_rot(rb):
 # -----------------------------
 # 포즈 정렬/변환
 # -----------------------------
+def wrap_deg(a):
+    return ((a + 180.0) % 360.0) - 180.0   # 필요하면 범위 정리(−180~+180)
+
 def make_tcp_vertical(rb):
     """현재 위치에서 TCP 자세를 바닥 기준 수직으로 맞춤"""
     cur = rb.getpos().pos2list()
@@ -85,26 +89,47 @@ def cam_to_tcp(P_cam):
     z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
     return [x, y, z]
 
-
-def rotate_by_angle(rb, delta_deg, lin_speed=100):
-    """툴 Z축 기준으로 현재 자세에서 delta_deg 만큼 '상대 회전'."""
-    delta_deg = -delta_deg # 좌표계 고려
+# Here is necessray edit1!!!
+def rotate_and_home(rb, delta_deg, pose=True, lift=150.0):
+    """툴 Z축 기준 회전을 하기 전에 월드 Z로 lift만큼 올린 뒤,
+       J1=-180, J6=J6+delta_deg 를 '한 방'에 이동."""
     if delta_deg is None:
         print("[ROT] angle None → 회전 생략")
-        return
-    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=lin_speed, acctime=0.3, dacctime=0.3))
+        return True  # ← None 방지
+
+    delta = -float(delta_deg)
+    cur = rb.getpos().pos2list()
+    x, y, z, rz, ry, rx = cur[:6]
+    p_up = Position(x, y, z + float(lift), rz, ry, rx)
+
+    j1, j2, j3, j4, j5, j6 = 72.04, 0.09, 75.16, 0.00, 104.75, 72.04
+    j1 = wrap_deg(j1 - 180.0)
+    j6 = wrap_deg(j6 + delta)
+
+    rb.asyncm(1)
     try:
-        # 1) 증분 회전이 지원되면 이 한 줄이면 끝
-        rb.toolmove(dx=0, dy=0, dz=0, drz=float(delta_deg))
-        # 2) 현재 TCP 포즈 확인 (특히 RZ)
+        rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+
+        rb.line(p_up)
+
+        if not pose:
+            send_vacuum_on(0)
+            return False  # ← 명확히 False 반환
+
+        rb.move(Joint(j1, j2, j3, j4, j5, j6))
+
         lst = rb.getpos().pos2list()
-        rz, ry, rx = lst[3:6]
-        print("TCP: rz=%.2f°, ry=%.2f°, rx=%.2f°" % (rz, ry, rx))
-        return
-    except TypeError:
-        pass
+        rz2, ry2, rx2 = lst[3:6]
+        print("TCP: rz=%.2f°, ry=%.2f°, rx=%.2f°" % (rz2, ry2, rx2))
+        return True   # ← 성공 시 True 반환
+
     except Exception as e:
-        print("[Rot] toolmove(drz=...) 실패", e)
+        print("[ROT] rotate_and_home 실패:", e)
+        raise
+    finally:
+        rb.asyncm(2)
+
+
 
 
 # -----------------------------
@@ -129,12 +154,21 @@ def pick_sequence(rb, P_tcp):
     [픽] 1) XY 평면 접근 → 2) Z로 내려감 → 3) 진공 ON → 4) Z로 복귀
     P_tcp : 상대 toolmove가 아니라, '픽까지 필요한 Δx,Δy,Δz'를 의미(프로젝트 정의 유지)
     """
-    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=300, acctime=0.3, dacctime=0.3))
-    rb.toolmove(dx=P_tcp[0], dy=P_tcp[1], dz=0)
-    rb.toolmove(dx=0, dy=0, dz=P_tcp[2] - 30)
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.asyncm(1)
+    
+    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.toolmove(dx=P_tcp[0], dy=P_tcp[1], dz=P_tcp[2] - 40)
+    
+    rb.join()
+    rb.asyncm(2)
+    
     send_vacuum_on(True)
-    rb.toolmove(dx=0, dy=0, dz=30-3) # set dz's margine
+    
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3))
+    rb.toolmove(dx=0, dy=0, dz=30 + 5) # set dz's margine
+    time.sleep(0.2) # time delay for picking by vacuum 
+        
+
 
 def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     # 여기에 파라미터 delta_angle을 넣어야 하나?
@@ -151,33 +185,45 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     z = float(z) - 100.0
     
     # 목표한 블록 위치의 각도 보정
-    rz = rz + delta_angle
+    rz = rz + float(delta_angle)
 
-    # 상공
-    p_above = Position(x, y, z + float(lift), rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=300, acctime=0.3, dacctime=0.3))
-    rb.line(p_above)
-
+    rb.asyncm(1)
+    
     # 접근
     p_down  = Position(x, y, z + float(approach), rz, ry, rx)
-    rb.line(p_down)    
+    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.move(p_down)
     
     # 실제로 놓기
     p_place = Position(x, y, z, rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.2, dacctime=0.3))
-    rb.line(p_place)
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=40, acctime=0.2, dacctime=0.3))
+    rb.move(p_place)
+    
+    
+    rb.join()
     
     # 흡착 해제
     if send_vacuum_on(1):
         send_vacuum_on(0)
-        time.sleep(1)
+        time.sleep(0.3) # vacuum off delay
 
-    # 상공 복귀
-    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=300, acctime=0.3, dacctime=0.3))
-    rb.relline(dz=300)
+    # 3) 현재 자세에서 '월드 Z로' 위로 먼저
+    cur = rb.getpos().pos2list()
+    x, y, z, rz, ry, rx = cur[:6]
+    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.line(Position(x, y, z + 120.0, rz, ry, rx))  # ↑ 위로 120mm
+   
+    # # 상공 복귀
+    # up_place = Position(-371.85, 15.41, 564.68, -90.0, 0.00, 180.00)
+    # rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+    # rb.move(up_place)
 
     # 다시 home으로 복귀
-    rb.reljntmove(dj1=+100)
-    move_to_home(rb)
+    # rb.reljntmove(dj1=+180)
+    # move_to_home(rb)
+    rb.move(Joint(*HOME_JOINT))
+    
+    rb.asyncm(2)
+    rb.join()
     
 
