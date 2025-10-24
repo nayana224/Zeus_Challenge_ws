@@ -1,4 +1,4 @@
-# d435_multi_color_center_3d_angleXYZ_single_live_once_tx_threaded_autominZ_lock_nocontourwin_hpV_TOP.py
+# d435_multi_color_center_3d_angleXYZ_single_live_once_tx_threaded_autominZ_lock_debugContours_nolimit_rangepose_pink_after_red_stabilized.py
 import cv2, numpy as np, pyrealsense2 as rs, math, time, argparse, sys, select, json, socket, threading, queue
 from time import monotonic as now
 
@@ -10,22 +10,15 @@ RETRY_COOLDOWN_S = 0.2
 PERSISTENT_CONN = False
 SEND_MIN_INTERVAL = 0.05
 
-# ───────── 과분할(끊김) 완화 전역 스위치 ─────────
-USE_STRONG_SPLIT = False   # 강분리(watershed 가혹 모드) 재수집 비활성화
-
-# ───────── Top-Layer(최상층) 강제 옵션 ─────────
-TOP_ONLY   = True     # 항상 최상층만 허용
-TOP_EPS_MM = 6.0      # 최상층 밴드 허용 오차(±mm)
-
-# ───────── 1) HSV 색 범위 ─────────
+# ───────── 1) HSV 색 범위(기본) ─────────
 COLOR_RANGES = {
-    "Red":    [ (np.array([  0,120, 50], np.uint8), np.array([  4,255,255], np.uint8)),
-                (np.array([170,120, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
-    "Pink":   [ (np.array([  4, 60, 50], np.uint8), np.array([ 20,255,255], np.uint8)) ],
+    "Red":    [ (np.array([  0, 80, 50], np.uint8), np.array([  3,255,255], np.uint8)),
+                (np.array([170,80, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
+    "Pink":   [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ],
     "Yellow": [ (np.array([ 20,120, 50], np.uint8), np.array([ 35,255,255], np.uint8)) ],
     "Green":  [ (np.array([ 40, 80, 50], np.uint8), np.array([ 85,255,255], np.uint8)) ],
     "Blue":   [ (np.array([ 88, 60, 50], np.uint8), np.array([125,255,255], np.uint8)) ],
-    "Purple": [ (np.array([120, 50, 50], np.uint8), np.array([160,255,255], np.uint8)) ],
+    "Purple": [ (np.array([120, 50, 50], np.uint8), np.array([144,255,255], np.uint8)) ],
 }
 
 # ───────── 색상별 분리 파라미터 ─────────
@@ -40,13 +33,25 @@ PER_COLOR_SPLIT = {
 
 AREA_STRONG = 2200
 PER_COLOR_SPLIT_STRONG = {
-    "Green":  {"dist": 0.50, "neck": 10, "rm": 0.12},
+    "Green":  {"dist": 0.50, "neck": 10, "rm": 0.12},  # Green/Yellow은 강분리 사용 안 함
     "Pink":   {"dist": 0.70, "neck": 23, "rm": 0.31},
     "Yellow": {"dist": 0.58, "neck": 13, "rm": 0.14},
     "Blue":   {"dist": 0.95, "neck": 14, "rm": 0.28},
     "Purple": {"dist": 0.95, "neck": 14, "rm": 0.28},
     "Red":    {"dist": 0.75, "neck": 16, "rm": 0.28},
 }
+
+# ───────── 1-A) Pink 동적 스위칭용 HSV 프리셋 ─────────
+PINK_HSV_INIT = [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]   # 시작값(기존)
+PINK_HSV_AFTER_RED = [ (np.array([  1, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]  # Red 사라진 뒤 활성값
+
+def get_active_color_ranges(pink_enabled: bool):
+    active = dict(COLOR_RANGES)
+    if pink_enabled:
+        active["Pink"] = PINK_HSV_AFTER_RED  # Red 소실 후 Pink 켬 -> [1..19]
+    else:
+        active["Pink"] = []  # Pink 후보 자체를 안 만듦
+    return active
 
 # ───────── 2) 바운딩 박스 드로잉 색상 ─────────
 DRAW_BGR = {
@@ -59,25 +64,34 @@ MIN_AREA           = 400
 KERNEL             = np.ones((5,5), np.uint8)
 TIMEOUT_MS         = 5000
 
-# ───────── 자세(면적) 판정 범위(배타적 비교) ─────────
-POSTURE_TRUE_MIN = 1300   # area > 1300
-POSTURE_TRUE_MAX = 3300   # area < 3300
+# 자세(면적) 판정 범위(배타적 비교)
+POSTURE_TRUE_MIN = 1300
+POSTURE_TRUE_MAX = 2800
 def is_posture_true(area: int) -> bool:
     return (area > POSTURE_TRUE_MIN) and (area < POSTURE_TRUE_MAX)
 
-# ───────── LOCK 파라미터 ─────────
+# LOCK 파라미터
 LOCK_DIST_PX_MAX   = 60
-LOCK_DZ_MM_MAX     = 30.0
+LOCK_DZ_MM_MAX     = 10.0
 LOCK_MISS_MAX      = 5
 LOCK_EMA_ALPHA     = 0.35
+LABEL_COOLDOWN_FRAMES = 8   # 락 진입 후 N프레임은 라벨 전환 금지
 
-# ───────── 면적 우선순위 ─────────
+# 면적 우선 범위
 PREF_AREA_MIN = 1650
 PREF_AREA_MAX = 2150
 def _is_pref_area(a):
     return (PREF_AREA_MIN <= int(a) <= PREF_AREA_MAX)
 
-# ───────── Util: 색 이름 정규화(미사용, 남겨둠) ─────────
+# ---- Red/Pink 보수적 판별 파라미터 ----
+CBCR_THRESH = 0.52   # Cb/Cr 임계값(↑할수록 Pink로 덜 뒤집힘)
+BR_THRESH   = 0.48   # B/R   임계값(↑할수록 Pink로 덜 뒤집힘)
+
+# LOCK 중 라벨 히스테리시스
+VOTES_TO_FLIP_R2P = 4   # Red → Pink
+VOTES_TO_FLIP_P2R = 3   # Pink → Red
+
+# ───────── Util: 색 이름 정규화(참고용) ─────────
 CANON = {
     "red":"Red","빨강":"Red","빨간색":"Red",
     "pink":"Pink","분홍":"Pink","분홍색":"Pink",
@@ -189,6 +203,59 @@ def color_mask(hsv, ranges):
         m = part if m is None else (m | part)
     return m
 
+# ───────── 2차 기준: Red vs Pink (보수적) ─────────
+def disambiguate_red_vs_pink(hsv_img, bgr_img, contour,
+                             cbcr_thresh=CBCR_THRESH, br_thresh=BR_THRESH,
+                             min_pixels=40, initial_hint=None, allow_pink=True):
+    """
+    HSV 겹침(H≈0~20 또는 170~179)에서만 2차 기준으로 Red/Pink 확정한다.
+    allow_pink=False이면 Pink 전환을 강제로 금지한다.
+    """
+    mask = np.zeros(hsv_img.shape[:2], np.uint8)
+    cv2.drawContours(mask, [contour], -1, 255, -1)
+
+    if int(cv2.countNonZero(mask)) < min_pixels:
+        return (None, 0.0)
+
+    H = hsv_img[...,0][mask>0]
+    h_med = float(np.median(H))
+
+    if initial_hint == "Pink" and 7.0 <= h_med <= 22.0:
+        return ("Pink", 1.0)
+    if initial_hint == "Red" and (h_med <= 6.0 or h_med >= 174.0):
+        return ("Red", 1.0)
+
+    ambiguous = (h_med <= 20.0) or (h_med >= 170.0)
+    if not ambiguous:
+        return (None, 0.0)
+
+    ycrcb = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2YCrCb)
+    Cr = ycrcb[...,1][mask>0].astype(np.float32)
+    Cb = ycrcb[...,2][mask>0].astype(np.float32)
+    cr_med = float(np.median(Cr)) + 1e-6
+    cb_med = float(np.median(Cb))
+    cbcr   = cb_med / cr_med
+
+    B = bgr_img[...,0][mask>0].astype(np.float32)
+    R = bgr_img[...,2][mask>0].astype(np.float32)
+    br = float(np.median(B) / (np.median(R) + 1e-6))
+
+    is_pink = (cbcr >= cbcr_thresh) and (br >= br_thresh)
+
+    if not allow_pink:
+        return ("Red", 1.0)
+
+    if is_pink:
+        s1 = max(0.0, min(1.0, (cbcr - cbcr_thresh) / 0.15))
+        s2 = max(0.0, min(1.0, (br   - br_thresh)   / 0.15))
+        strength = 0.5 * (s1 + s2)
+        return ("Pink", strength)
+    else:
+        s1 = max(0.0, min(1.0, (cbcr_thresh - cbcr) / 0.20))
+        s2 = max(0.0, min(1.0, (br_thresh   - br)   / 0.20))
+        strength = 0.5 * (s1 + s2)
+        return ("Red", strength)
+
 # ───────── Util: 3D/2D 주성분 각도 ─────────
 def angle_3d_deg(contour, depth, deproject_fn, stride=3):
     pts = contour.reshape(-1, 2)
@@ -223,14 +290,12 @@ def angle_3d_deg(contour, depth, deproject_fn, stride=3):
         return float(ang2), False
     return None, False
 
-# ───────── 일반 물체 분리 (끊김 완화 버전) ─────────
+# ───────── 일반 물체 분리 ─────────
 def split_touching_basic(mask_bin, color_bgr, min_area=MIN_AREA,
-                         dist_thresh_rel=0.60,
-                         neck_cut=False,
-                         neck_k=7, rm_thin_ratio=0.12):
+                         dist_thresh_rel=0.45, neck_cut=True, neck_k=7, rm_thin_ratio=0.12):
     k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
-    closed = cv2.morphologyEx(mask_bin, cv2.MORPH_CLOSE, k3, iterations=1)
-    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, k3, iterations=1)
+    opened = cv2.morphologyEx(mask_bin, cv2.MORPH_OPEN, k3, iterations=1)
+
     cut = opened.copy()
     if neck_cut:
         kv = cv2.getStructuringElement(cv2.MORPH_RECT, (1, neck_k))
@@ -246,11 +311,15 @@ def split_touching_basic(mask_bin, color_bgr, min_area=MIN_AREA,
         peaks = np.zeros_like(dist, dtype=np.uint8)
     peaks = peaks.astype(np.uint8)
 
-    sure_fg = peaks
+    d8 = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+    local_max = cv2.dilate(dist, d8)
+    peaks2 = np.where((dist == local_max) & (dist > 0), 255, 0).astype(np.uint8)
+    sure_fg = cv2.bitwise_or(peaks, peaks2)
+
     sure_bg = cv2.dilate(cut, k3, iterations=2)
     unknown = cv2.subtract(sure_bg, sure_fg)
 
-    _, markers = cv2.connectedComponents(sure_fg)
+    num, markers = cv2.connectedComponents(sure_fg)
     markers = markers + 1
     markers[unknown == 255] = 0
 
@@ -275,12 +344,14 @@ def split_touching_basic(mask_bin, color_bgr, min_area=MIN_AREA,
         contours.extend(cs)
     return contours
 
-# ───────── 붙은 물체 강제 분리 (코너 시드 OFF) ─────────
+# ───────── 붙은 물체 강제 분리 ─────────
 def split_touching_strong(mask_bin, color_bgr, min_area=MIN_AREA,
                           dist_thresh_rel=0.45, neck_cut=True, neck_k=7, rm_thin_ratio=0.12):
-    def _run(mask, dist_rel, base_neck_k, add_corner_seeds=False):
+    def _run(mask, dist_rel, base_neck_k, add_corner_seeds=True):
         k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
         opened = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k3, iterations=1)
+
+        # 적응형 neck
         if cv2.countNonZero(opened) > 0:
             x, y, w, h = cv2.boundingRect(opened)
             adapt = int(max(base_neck_k, math.ceil(min(w, h) * 0.18)))
@@ -307,6 +378,21 @@ def split_touching_strong(mask_bin, color_bgr, min_area=MIN_AREA,
         local_max = cv2.dilate(dist, d8)
         peaks2 = np.where((dist == local_max) & (dist > 0), 255, 0).astype(np.uint8)
         sure_fg = cv2.bitwise_or(peaks, peaks2)
+
+        # 코너 시드 추가
+        if add_corner_seeds:
+            try:
+                corners = cv2.goodFeaturesToTrack((cut>0).astype(np.uint8)*255,
+                                                  maxCorners=6, qualityLevel=0.01, minDistance=10)
+                if corners is not None:
+                    corner_seed = np.zeros_like(sure_fg)
+                    for pt in corners:
+                        cx, cy = int(pt[0][0]), int(pt[0][1])
+                        cv2.circle(corner_seed, (cx, cy), 3, 255, -1)
+                    corner_seed = cv2.dilate(corner_seed, k3, iterations=1)
+                    sure_fg = cv2.bitwise_or(sure_fg, corner_seed)
+            except Exception:
+                pass
 
         sure_bg = cv2.dilate(cut, k3, iterations=2)
         unknown = cv2.subtract(sure_bg, sure_fg)
@@ -335,11 +421,11 @@ def split_touching_strong(mask_bin, color_bgr, min_area=MIN_AREA,
             contours.extend(cs)
         return contours
 
-    contours = _run(mask_bin, dist_thresh_rel, neck_k, add_corner_seeds=False)
+    contours = _run(mask_bin, dist_thresh_rel, neck_k, add_corner_seeds=True)
     if len(contours) <= 1:
         strong_dist = min(0.98, dist_thresh_rel + 0.20)
         strong_neck = max(neck_k + 10, int(neck_k * 1.5))
-        contours = _run(mask_bin, strong_dist, strong_neck, add_corner_seeds=False)
+        contours = _run(mask_bin, strong_dist, strong_neck, add_corner_seeds=True)
     return contours
 
 # ───────── 깊이 유틸 ─────────
@@ -354,9 +440,14 @@ def depth_at(cx, cy, depth, k=3):
     return float(np.median(valid))
 
 # ───────── 후보 수집(기본) ─────────
-def collect_candidates_all_colors_basic(hsv, color_bgr, depth, min_area=MIN_AREA):
+def collect_candidates_all_colors_basic(hsv, color_bgr, depth, min_area=MIN_AREA,
+                                        color_ranges=None, allow_pink=True):
+    if color_ranges is None:
+        color_ranges = COLOR_RANGES
     out = []
-    for cname, ranges in COLOR_RANGES.items():
+    for cname, ranges in color_ranges.items():
+        if len(ranges) == 0:
+            continue
         mask = color_mask(hsv, ranges)
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, KERNEL, iterations=1)
 
@@ -364,8 +455,7 @@ def collect_candidates_all_colors_basic(hsv, color_bgr, depth, min_area=MIN_AREA
         dist_rel = float(p["dist"]); neck_k = int(p["neck"]); rm_ratio = float(p["rm"])
 
         cnts = split_touching_basic(mask, color_bgr=color_bgr, min_area=min_area,
-                                    dist_thresh_rel=max(0.60, dist_rel),
-                                    neck_cut=False,
+                                    dist_thresh_rel=dist_rel, neck_cut=True,
                                     neck_k=neck_k, rm_thin_ratio=rm_ratio)
         for c in cnts:
             area = int(cv2.contourArea(c))
@@ -377,8 +467,18 @@ def collect_candidates_all_colors_basic(hsv, color_bgr, depth, min_area=MIN_AREA
             if z_mm is None: continue
             x, y, ww, hh = cv2.boundingRect(c)
             posture_true = is_posture_true(area)
+
+            label = cname
+            if label in ("Red", "Pink"):
+                decided_label, _ = disambiguate_red_vs_pink(
+                    hsv, color_bgr, c, initial_hint=label, allow_pink=allow_pink
+                )
+                if decided_label is not None:
+                    label = decided_label
+
             out.append({
-                "color": cname, "c": c, "cx": cx, "cy": cy,
+                "color": label,
+                "c": c, "cx": cx, "cy": cy,
                 "x": x, "y": y, "w": ww, "h": hh,
                 "cnt_area": area, "posture_true": posture_true,
                 "z_mm": z_mm,
@@ -386,11 +486,18 @@ def collect_candidates_all_colors_basic(hsv, color_bgr, depth, min_area=MIN_AREA
     return out
 
 # ───────── 단일 색상 재수집(강/기본 선택 가능) ─────────
-def collect_candidates_for_one_color(hsv, color_bgr, depth, cname, min_area=MIN_AREA, strong=False):
+def collect_candidates_for_one_color(hsv, color_bgr, depth, cname, min_area=MIN_AREA,
+                                     strong=False, color_ranges=None, allow_pink=True):
+    if color_ranges is None:
+        color_ranges = COLOR_RANGES
+
     if cname in ("Green", "Yellow"):
         strong = False
 
-    ranges = COLOR_RANGES[cname]
+    ranges = color_ranges.get(cname, [])
+    if len(ranges) == 0:
+        return []
+
     mask = color_mask(hsv, ranges)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, KERNEL, iterations=1)
 
@@ -404,8 +511,7 @@ def collect_candidates_for_one_color(hsv, color_bgr, depth, cname, min_area=MIN_
     dist_rel = float(p["dist"]); neck_k = int(p["neck"]); rm_ratio = float(p["rm"])
 
     cnts = split_fn(mask, color_bgr=color_bgr, min_area=min_area,
-                    dist_thresh_rel=(dist_rel if not strong else dist_rel),
-                    neck_cut=(True if strong else False),
+                    dist_thresh_rel=dist_rel, neck_cut=True,
                     neck_k=neck_k, rm_thin_ratio=rm_ratio)
 
     out = []
@@ -419,26 +525,29 @@ def collect_candidates_for_one_color(hsv, color_bgr, depth, cname, min_area=MIN_
         if z_mm is None: continue
         x, y, ww, hh = cv2.boundingRect(c)
         posture_true = is_posture_true(area)
+
+        label = cname
+        if label in ("Red", "Pink"):
+            decided_label, _ = disambiguate_red_vs_pink(
+                hsv, color_bgr, c, initial_hint=label, allow_pink=allow_pink
+            )
+            if decided_label is not None:
+                label = decided_label
+
         out.append({
-            "color": cname, "c": c, "cx": cx, "cy": cy,
+            "color": label,
+            "c": c, "cx": cx, "cy": cy,
             "x": x, "y": y, "w": ww, "h": hh,
             "cnt_area": area, "posture_true": posture_true,
             "z_mm": z_mm,
         })
     return out
 
-# ───────── Top-Layer 필터 ─────────
-def top_band_filter(cands, eps_mm=TOP_EPS_MM):
-    if (not TOP_ONLY) or (not cands):
-        return cands, None
-    z_min = min(c["z_mm"] for c in cands)
-    band = [c for c in cands if c["z_mm"] <= z_min + eps_mm]
-    return band, z_min
-
 # ───────── 미리 선택(LOCK 규칙) + 면적 우선 ─────────
 def pick_candidate(candidates, lock):
     if not candidates:
         return None
+
     pref = [c for c in candidates if _is_pref_area(c.get("cnt_area", 0))]
     pool = pref if len(pref) > 0 else candidates
 
@@ -475,9 +584,25 @@ class LockState:
         self.miss = 0
         self.angle_deg = None
         self.center_mm = None
+
+        # 안정/디버그용
         self.stable_frames = 0
         self.prev_cx = None
         self.prev_cy = None
+
+        # 라벨 히스테리시스 투표
+        self.vote_r2p = 0  # Red → Pink
+        self.vote_p2r = 0  # Pink → Red
+
+        # 시각화용 스무딩된 bbox/center
+        self.sm_cx = None
+        self.sm_cy = None
+        self.sm_ang = None
+        self.sm_bx = None
+        self.sm_by = None
+        self.sm_bw = None
+        self.sm_bh = None
+
     def reset(self):
         self.__init__()
 
@@ -495,10 +620,8 @@ def main():
 
     print(f"[INIT] 자세 True 범위(배타): ({POSTURE_TRUE_MIN}, {POSTURE_TRUE_MAX}) px^2")
     print(f"[NET ] DEST={dest_ip}:{dest_port}  PERSIST={persist}")
-    print("[MODE] AUTO+LOCK(+TOP): Z(min) 우선 + 면적우선, 화면 중심 무관 동작한다")
+    print("[MODE] AUTO+LOCK: Z(min) 우선 + 면적우선, 화면 중심 무관 동작한다")
     print(f"[PREF] 면적 우선 범위={PREF_AREA_MIN}~{PREF_AREA_MAX} px^2")
-    if TOP_ONLY:
-        print(f"[TOP ] Top-Layer only: eps={TOP_EPS_MM}mm")
 
     stop_event = threading.Event()
     payload_queue = LatestQueue()
@@ -516,8 +639,11 @@ def main():
         return X*1000.0, Y*1000.0, Z*1000.0
 
     lock = LockState()
-    sm_cx = sm_cy = None
-    sm_ang = None
+
+    # ───── Pink 동적 상태 ─────
+    pink_enabled = False
+    red_absent_streak = 0
+    RED_GONE_FRAMES = 12  # 연속 N프레임 동안 Red 0개면 Pink 활성화
 
     try:
         while True:
@@ -530,56 +656,62 @@ def main():
 
             color = np.asanyarray(color_frame.get_data())
             depth = np.asanyarray(depth_frame.get_data())  # mm
+            hsv   = cv2.cvtColor(color, cv2.COLOR_BGR2HSV)
 
-            # ----- (1) V 채널 언샤프 + CLAHE로 밝기(경계) 강화 -----
-            hsv0 = cv2.cvtColor(color, cv2.COLOR_BGR2HSV)
-            h0, s0, v0 = cv2.split(hsv0)
-            v_blur  = cv2.GaussianBlur(v0, (0, 0), 1.2)
-            v_sharp = cv2.addWeighted(v0, 1.8, v_blur, -0.8, 0)
-            clahe   = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-            v_boost = clahe.apply(v_sharp)
-            hsv     = cv2.merge([h0, s0, v_boost])               # 마스크 계산용 HSV(강화본)
-            color_for_ws = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)  # 워터셰드 입력용 BGR(강화본)
+            # 활성 색 범위 구성(Pink on/off 반영)
+            active_ranges = get_active_color_ranges(pink_enabled)
 
-            # 1) 전 색상 후보 수집
+            # 1) 전 색상 '기본 분리'로 후보 수집
             candidates = collect_candidates_all_colors_basic(
-                hsv,               # 강화된 HSV
-                color_for_ws,      # 강화된 BGR (워터셰드 입력)
-                depth,
-                min_area=MIN_AREA
+                hsv, color, depth, min_area=MIN_AREA,
+                color_ranges=active_ranges, allow_pink=pink_enabled
             )
 
-            # 1.5) Top-Layer 필터 (전역 적용)
-            candidates, z_top = top_band_filter(candidates, eps_mm=TOP_EPS_MM)
+            # Red 존재 여부로 상태 갱신
+            red_present = any(c["color"] == "Red" for c in candidates)
+            if red_present:
+                red_absent_streak = 0
+            else:
+                red_absent_streak += 1
+                if (not pink_enabled) and red_absent_streak >= RED_GONE_FRAMES:
+                    pink_enabled = True
+                    print("[MODE] Red 소실 감지 → Pink 인식 활성화(HSV=[1..19])")
 
-            # 2) 현재 LOCK 규칙 + 면적우선으로 '미리' 선택
+            # 2) 현재 LOCK 규칙 + 면적우선으로 미리 선택
             pre_chosen = pick_candidate(candidates, lock)
 
-            # 3) (옵션) 큰 면적 강분리 재수집 → 재수집 결과에도 Top-Layer 필터 재적용
-            if (USE_STRONG_SPLIT and pre_chosen is not None and
+            # 3) 큰 면적(>= AREA_STRONG)이고 Green/Yellow이 아니면 강분리 재수집
+            if (pre_chosen is not None and
                 pre_chosen["cnt_area"] >= AREA_STRONG and
                 pre_chosen["color"] not in ("Green", "Yellow")):
                 candidates = [c for c in candidates if c["color"] != pre_chosen["color"]]
-                rec = collect_candidates_for_one_color(
-                    hsv, color_for_ws, depth,
-                    cname=pre_chosen["color"], min_area=MIN_AREA, strong=True
+                candidates += collect_candidates_for_one_color(
+                    hsv, color, depth,
+                    cname=pre_chosen["color"], min_area=MIN_AREA, strong=True,
+                    color_ranges=active_ranges, allow_pink=pink_enabled
                 )
-                rec, _ = top_band_filter(rec, eps_mm=TOP_EPS_MM)   # 재수집 결과도 Top-Band 필터
-                candidates += rec
 
-            # 3.5) LOCK이 Top-Band 밖으로 벗어나면 즉시 해제
-            if lock.active and z_top is not None and (lock.z_mm is not None):
-                if lock.z_mm > z_top + TOP_EPS_MM:
-                    lock.reset()
+            # 디버그 컨투어 캔버스
+            contours_debug = np.zeros_like(color)
+            for info in candidates:
+                cname_dbg = info["color"]
+                c = info["c"]
+                x, y, w, h = info["x"], info["y"], info["w"], info["h"]
+                cx, cy = info["cx"], info["cy"]
+                cv2.drawContours(contours_debug, [c], -1, DRAW_BGR[cname_dbg], 2)
+                cv2.rectangle(contours_debug, (x, y), (x+w, y+h), DRAW_BGR[cname_dbg], 1)
+                cv2.circle(contours_debug, (cx, cy), 3, DRAW_BGR[cname_dbg], -1)
+                tag = f"{cname_dbg}{' *' if _is_pref_area(info['cnt_area']) else ''}"
+                cv2.putText(contours_debug, tag, (x, max(0, y-6)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, DRAW_BGR[cname_dbg], 1)
 
-            # 최종 선택 & LOCK 처리 (Top-Band 필터 이후 후보군만 사용)
+            # 최종 선택 & LOCK 처리
             chosen = None
             if lock.active:
                 gate_pool = []
                 for info in candidates:
                     if info["color"] != lock.color:
                         continue
-                    # Top-Band 강제: 후보 자체가 이미 Top-Band로 필터링되어 있음
                     dx = info["cx"] - lock.cx
                     dy = info["cy"] - lock.cy
                     dpx = math.hypot(dx, dy)
@@ -612,6 +744,15 @@ def main():
                     lock.stable_frames = 0
                     lock.prev_cx, lock.prev_cy = lock.cx, lock.cy
 
+                    # bbox/center 스무딩 초기화
+                    lock.sm_cx = float(lock.cx)
+                    lock.sm_cy = float(lock.cy)
+                    lock.sm_ang = None
+                    lock.sm_bx = float(chosen["x"])
+                    lock.sm_by = float(chosen["y"])
+                    lock.sm_bw = float(chosen["w"])
+                    lock.sm_bh = float(chosen["h"])
+
             # 선택/시각화/송신
             if chosen is not None:
                 cname = chosen["color"]
@@ -632,29 +773,75 @@ def main():
                         lock.stable_frames = 1
                 lock.prev_cx, lock.prev_cy = cx, cy
 
-                # 시각화
-                sm_cx = int(round(ema(sm_cx, cx, LOCK_EMA_ALPHA)))
-                sm_cy = int(round(ema(sm_cy, cy, LOCK_EMA_ALPHA)))
+                # ---- 최종 라벨 확정(보수적) + 히스테리시스 ----
+                decided_label, strength = disambiguate_red_vs_pink(
+                    hsv, color, chosen["c"], initial_hint=cname, allow_pink=pink_enabled
+                )
+                if lock.active and lock.stable_frames < LABEL_COOLDOWN_FRAMES:
+                    decided_label = None
+                if decided_label is not None:
+                    if lock.active and lock.color in ("Red", "Pink"):
+                        if lock.color == "Red":
+                            if decided_label == "Pink":
+                                lock.vote_r2p += 1; lock.vote_p2r = 0
+                            else:
+                                lock.vote_p2r += 1; lock.vote_r2p = 0
+                            if lock.vote_r2p >= VOTES_TO_FLIP_R2P:
+                                cname = "Pink"; lock.vote_r2p = 0
+                            else:
+                                cname = "Red"
+                        else:  # lock.color == "Pink"
+                            if decided_label == "Red":
+                                lock.vote_p2r += 1; lock.vote_r2p = 0
+                            else:
+                                lock.vote_r2p += 1; lock.vote_p2r = 0
+                            if lock.vote_p2r >= VOTES_TO_FLIP_P2R:
+                                cname = "Red"; lock.vote_p2r = 0
+                            else:
+                                cname = "Pink"
+                    else:
+                        # lock 전: Red 우선 유지, Pink는 충분히 강할 때만
+                        cname = decided_label if decided_label == "Red" else ("Pink" if strength >= 0.5 and pink_enabled else "Red")
+
+                # ── EMA 기반 시각화 좌표/박스 안정화 ──
+                lock.sm_cx = ema(lock.sm_cx, cx, LOCK_EMA_ALPHA)
+                lock.sm_cy = ema(lock.sm_cy, cy, LOCK_EMA_ALPHA)
+
+                # bbox도 부드럽게
+                lock.sm_bx = ema(lock.sm_bx, x,  LOCK_EMA_ALPHA)
+                lock.sm_by = ema(lock.sm_by, y,  LOCK_EMA_ALPHA)
+                lock.sm_bw = ema(lock.sm_bw, ww, LOCK_EMA_ALPHA)
+                lock.sm_bh = ema(lock.sm_bh, hh, LOCK_EMA_ALPHA)
+
+                sm_cx_i = int(round(lock.sm_cx))
+                sm_cy_i = int(round(lock.sm_cy))
+                sm_bx_i = int(round(lock.sm_bx))
+                sm_by_i = int(round(lock.sm_by))
+                sm_bw_i = int(round(lock.sm_bw))
+                sm_bh_i = int(round(lock.sm_bh))
 
                 Xmm, Ymm, Zmm = deproject_mm(cx, cy, z_mm/1000.0)
                 center_mm = (round(Xmm,1), round(Ymm,1), round(Zmm,1))
                 ang_deg, ok3d = angle_3d_deg(chosen["c"], depth, deproject_mm, stride=3)
-            
-                cv2.rectangle(color, (x, y), (x+ww, y+hh), DRAW_BGR[cname], 2)
-                cv2.circle(color, (sm_cx, sm_cy), 6, DRAW_BGR[cname], -1)
-                if sm_ang is not None:
-                    L = max(ww, hh) // 2 + 20
-                    rad = math.radians(sm_ang)
-                    ex = int(sm_cx + L * math.cos(rad))
-                    ey = int(sm_cy + L * math.sin(rad))
-                    cv2.arrowedLine(color, (sm_cx, sm_cy), (ex, ey), DRAW_BGR[cname], 2, tipLength=0.25)
+                if ang_deg is not None:
+                    lock.sm_ang = ema(lock.sm_ang, ang_deg, LOCK_EMA_ALPHA)
 
-                label = (f"{cname}{' *' if _is_pref_area(cnt_area) else ''} "
-                         f"[pose={str(posture_true)}] "
-                         f"cntA={cnt_area}  3D(mm)=({Xmm:.1f},{Ymm:.1f},{Zmm:.1f})  "
-                         f"{'LOCK' if lock.active else 'FREE'}  "
-                         f"stable={lock.stable_frames}/{COUNT_STABLE_FRAMES}")
-                cv2.putText(color, label, (x, max(0, y-8)),
+                # 시각화
+                cv2.rectangle(color, (sm_bx_i, sm_by_i), (sm_bx_i+sm_bw_i, sm_by_i+sm_bh_i), DRAW_BGR[cname], 2)
+                cv2.circle(color, (sm_cx_i, sm_cy_i), 6, DRAW_BGR[cname], -1)
+                if lock.sm_ang is not None:
+                    L = max(ww, hh) // 2 + 20
+                    rad = math.radians(lock.sm_ang)
+                    ex = int(sm_cx_i + L * math.cos(rad))
+                    ey = int(sm_cy_i + L * math.sin(rad))
+                    cv2.arrowedLine(color, (sm_cx_i, sm_cy_i), (ex, ey), DRAW_BGR[cname], 2, tipLength=0.25)
+
+                label_txt = (f"{cname}{' *' if _is_pref_area(cnt_area) else ''} "
+                             f"[pose={str(posture_true)}] "
+                             f"cntA={cnt_area}  3D(mm)=({Xmm:.1f},{Ymm:.1f},{Zmm:.1f})  "
+                             f"{'LOCK' if lock.active else 'FREE'}  "
+                             f"stable={lock.stable_frames}/{COUNT_STABLE_FRAMES}")
+                cv2.putText(color, label_txt, (sm_bx_i, max(0, sm_by_i-8)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.52, DRAW_BGR[cname], 2)
 
                 # LOCK 상태 업데이트
@@ -663,29 +850,30 @@ def main():
                     lock.cx, lock.cy = cx, cy
                     lock.z_mm = z_mm
                     lock.center_mm = center_mm
-                    lock.angle_deg = float(sm_ang) if sm_ang is not None else (float(ang_deg) if ang_deg is not None else None)
+                    lock.angle_deg = float(lock.sm_ang) if lock.sm_ang is not None else (float(ang_deg) if ang_deg is not None else None)
 
                 # 송신
                 payload = {
-                    "color": cname,
-                    "pose": bool(posture_true),
-                    "center_mm": {"x": float(center_mm[0]), "y": float(center_mm[1]), "z": float(center_mm[2])},
-                    "angle_deg": lock.angle_deg if lock.active else None,
+                    "color": cname,     # 색깔
+                    "pose": bool(posture_true),     # True / False
+                    "center_mm": {"x": float(center_mm[0]), "y": float(center_mm[1]), "z": float(center_mm[2])},    # 중심 좌표
+                    "angle_deg": lock.angle_deg if lock.active else None,   # 각도
                 }
                 payload_queue.put_latest(payload)
 
-            # HUD (Top-Layer 정보 포함)
-            hud = (f"AUTO+LOCK+TOP  TRUE-AREA(excl)=({POSTURE_TRUE_MIN},{POSTURE_TRUE_MAX}) "
+            # HUD
+            hud = (f"AUTO+LOCK  TRUE-AREA(excl)=({POSTURE_TRUE_MIN},{POSTURE_TRUE_MAX}) "
                    f"PREF={PREF_AREA_MIN}-{PREF_AREA_MAX}px^2")
             hud += f"  STATE={'LOCKED' if lock.active else 'UNLOCK'}"
+            hud += f"  | Pink={'ON[1..19]' if pink_enabled else 'OFF'}"
             if lock.active:
                 hud += f"  miss={lock.miss}/{LOCK_MISS_MAX}  color={lock.color}"
-            if TOP_ONLY and (z_top is not None):
-                hud += f"  z_top={z_top:.1f}mm ±{TOP_EPS_MM:.1f}"
+                hud += f"  votes(R2P={lock.vote_r2p},P2R={lock.vote_p2r})"
             cv2.putText(color, hud, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (255,255,255), 2)
 
-            # ───── 단일 창 표시 ─────
+            # ───── 두 창 표시 ─────
             cv2.imshow("color", color)
+            cv2.imshow("contours_debug", contours_debug)
 
             key = cv2.waitKey(1) & 0xFF
             if key in (ord('q'), 27):
