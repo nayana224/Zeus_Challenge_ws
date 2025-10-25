@@ -1,11 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 # main.py
-import traceback
 from i611_MCS import Robot_emo
+
+# ---- 내가 만든 파일 import ---- #
 from utils import *
-from comm import *
-from pose_table import *
+from comm import get_connector_type
+
+
 
 
 def main():
@@ -14,24 +16,33 @@ def main():
 
         while True:
             try:
-                # 1) 그리퍼/진공 초기화
-                grip_open()
-                # send_vacuum_on(0)
                 
-                # 2) 홈 이동
-                move_to_home(rb)
-                print_current_pose(rb, "Now is home pose.") # 어 쓰니야 버겁다...
+                get_connector_type()
+                # # 1) 그리퍼/진공 초기화
+                # grip_open()
                 
-            
+                # # 2) 홈 이동
+                # move_to_home(rb)
+                # print_current_pose(rb, "Now is home pose.") 
                 
-                rb.relline(drx=30)
-                rb.relline(drx=-30)
-                rb.relline(dry=30)
-                rb.relline(dry=-30)
-                rb.relline(drz=30)
-                rb.relline(drz=-30)
+                # x, y, z, rz, ry, rx = get_current_pose(rb)
+                # p1 = Position(x, y, z, rz, ry, rx)
+                # rb.line(p1)
+                # print_current_pose(rb, "test position") # -> flange 좌표
                 
-                move_to_home(rb)
+                # p2 = Position(421.72,  -5.26, 469.85,  90.00,   0.00, 180.00) 
+                # rb.line(p2)
+                # print_current_pose(rb, "tcp position test") # ->
+                
+                # p3 = p2.offset(dx=+100)
+                # rb.line(p3)
+                # print_current_pose(rb, "position3")
+                
+                # rb.line(p2)
+                # print_current_pose(rb, "test position home")
+
+                
+                
                 
             except Robot_emo:
                 print("EMO(비상정지) 입력")
@@ -41,7 +52,6 @@ def main():
                 break
             except Exception as e:
                 print("[ERROR] %s" % {e})
-                traceback.print_exc()
                 break   # 또는 상황에 따라 continue 
     finally:
         try:
