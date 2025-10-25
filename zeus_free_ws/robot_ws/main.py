@@ -16,6 +16,35 @@ def main():
 
         while True:
             try:
+                grip_close()
+                move_to_home(rb)
+                
+                
+                p1 = Position(500.68, 229.88,   5.74,-176.63,  -0.13, 179.87)
+                p2 = Position(601.28, 129.91, 195.28,-176.38,  -0.28, 179.98)
+                p3 = Position(700.71,  30.49, 196.44,-176.31,  -0.29, 179.93)
+                
+                
+                rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+                rb.line(p1.offset(dz=50))
+                rb.line(p1)
+                
+                
+                rb.line(p1.offset(dy=-200, dz=100))
+                rb.line(p2.offset(dz=50))
+                rb.line(p2)
+                
+                rb.line(p2.offset(dy=-200, dz=100))
+                rb.line(p3.offset(dz=50))
+                rb.line(p3)
+                
+                
+                rb.line(p3.offset(dz=50))
+                move_to_home(rb)
+                
+                
+                
+                '''
                 # Vision 측에서 커넥터 타입 수신
                 connector = get_connector_type()
 
@@ -42,7 +71,9 @@ def main():
                     print("[MAIN] No connector received. Waiting again...")
 
                 rb.sleep(0.1)  # 루프 간 대기
-
+                '''
+                
+                
                 
             except Robot_emo:
                 print("EMO(비상정지) 입력")
@@ -59,7 +90,7 @@ def main():
     finally:
         try:
             print("[FINAL] Returning to home and releasing gripper.")
-            grip_open()
+            grip_close()
             move_to_home(rb)
         except:
             pass

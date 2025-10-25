@@ -53,7 +53,7 @@ def grip_close():
 
 def move_to_home(rb):
     '''홈 위치로 복귀'''
-    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=300, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=10, lin_speed=100, acctime=0.3, dacctime=0.3))
     rb.move(Joint(*HOME_JOINT))
     print("[HOME] Home 위치로 복귀 완료")
     print_current_pose(rb,"Home")
