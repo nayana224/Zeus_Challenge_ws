@@ -1,57 +1,89 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-import socket
-import json
+import socket, json
 
-HOST = ''               # 모든 인터페이스에서 수신
-PORT_JSON_OUT = 10000   # Vision 프로그램의 송신 포트와 동일해야 함
+HOST_MCU = "192.168.1.1" # 이건 윈도우 cmd창에서 "ipconfig" 명령어를 통해 확인 
+PORT_MCU = 5005
 
-def get_connector_type(timeout=5.0):
-    """
-    Vision 측(클라이언트)에서 전송한 JSON 메시지
-    {"connector": "xt60"} 형태를 수신하여 connector 문자열을 반환한다.
+HOST_CAM = ""   # 모든 인터페이스에서 수신
+PORT_CAM = 10000
 
-    Returns:
-        str: 'ec3', 'xt60', 'xt90' 중 하나
-        None: 수신 실패 또는 잘못된 데이터
-    """
+def get_connector_type(timeout=10.0):
+    '''커넥터 타입 수신 받기'''
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((HOST, PORT_JSON_OUT))
+    server_socket.bind((HOST_CAM, PORT_CAM))
     server_socket.listen(1)
     server_socket.settimeout(timeout)
 
-    print(f"[JSON-RX] Waiting for connection on port {PORT_JSON_OUT}...")
+    print("[JSON-RX] Waiting for connection on port %d..." % PORT_CAM)
 
+    conn = None
     try:
         conn, addr = server_socket.accept()
-        print(f"[JSON-RX] Connected by {addr}")
+        print("[JSON-RX] Connected by %s" % str(addr))
 
-        data = conn.recv(1024).decode('utf-8').strip()
-        print(f"[JSON-RX] Raw data: {data}")
+        data = conn.recv(1024).strip()
+        print("[JSON-RX] Raw data: %s" % data)
 
-        # JSON 파싱
-        try:
-            parsed = json.loads(data)
-            connector_type = parsed.get("connector")
-            print(f"[JSON-RX] Received connector type: {connector_type}")
-            return connector_type
-
-        except json.JSONDecodeError:
-            print("[ERROR] Invalid JSON format.")
-            return None
+        parsed = json.loads(data)
+        connector_type = parsed.get("connector")
+        print("[JSON-RX] Received connector type: %s" % connector_type)
+        return connector_type
 
     except socket.timeout:
-        print("[TIMEOUT] No connection received within timeout.")
+        print("[TIMEOUT] No connection within %ds." % timeout)
         return None
-
     except Exception as e:
-        print(f"[ERROR] Unexpected error: {e}")
+        print("[ERROR] Unexpected error:", e)
         return None
-
     finally:
         try:
-            conn.close()
+            if conn:
+                conn.close()
         except:
             pass
         server_socket.close()
+
+
+
+def _send_mcu(msg):
+    """공통 TCP 송신 함수"""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.settimeout(1.0)
+        s.connect((HOST_MCU, PORT_MCU))
+        s.send(msg.encode('utf-8'))   # 문자열 → bytes로 전송
+        print("[MCU] Sent:", msg)
+        return True
+    except Exception as e:
+        print("[MCU][ERROR]:", e)
+        return False
+    finally:
+        try: s.shutdown(socket.SHUT_RDWR)
+        except: pass
+        s.close()
+
+
+def servo_on(v):
+    """그리퍼 서보 ON/OFF"""
+    msg = '0' if v else '1'    # on:'0', off:'1'
+    return _send_mcu(msg)
+
+
+def magnet_on(v):
+    """그리퍼 전자석 ON/OFF"""
+    msg = '2' if v else '3'    # on:'2', off:'3'
+    return _send_mcu(msg)
+
+
+def convey_on(v):
+    """컨베이어벨트 ON/OFF"""
+    msg = '4' if v else '5'    # on:'4', off:'5'(추가)
+    return _send_mcu(msg)
+
+
+def door_on(v):
+    """도어 서보 ON/OFF"""
+    msg = '6' if v else '7'    # on:'6', off:'7'
+    return _send_mcu(msg)
