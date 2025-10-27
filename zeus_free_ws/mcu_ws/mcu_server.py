@@ -4,8 +4,9 @@
 import socket
 import serial
 
-HOST = "0.0.0.0"
-PORT = 5005
+HOST_MCU = "0.0.0.0"
+PORT_MCU = 5005
+
 SERIAL_PORT = "/dev/ttyACM0"
 BAUD = 115200
 
@@ -13,11 +14,11 @@ def receive_command():
     ser = serial.Serial(SERIAL_PORT, BAUD, timeout=1)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((HOST, PORT))
+    s.bind((HOST_MCU, PORT_MCU))
     s.listen(1)
     s.settimeout(1.0)
     print("[OK] Serial:", SERIAL_PORT, BAUD)
-    print("[OK] Listening:", HOST, PORT)
+    print("[OK] Listening:", HOST_MCU, PORT_MCU)
 
     try:
         while True:
@@ -31,7 +32,7 @@ def receive_command():
                 b = c.recv(1)
                 if not b:
                     continue
-                if b.isdigit():   # '0'~'9' → 허용
+                if b.isdigit(0) or b in (b'b', b'B'):   # '0'~'9', 'b', 'B' → 허용
                     ser.write(b)
                     print("[RX]", a[0], "->", repr(b))
                 else:

@@ -5,73 +5,59 @@ from i611_MCS import Robot_emo
 
 # ---- 내가 만든 파일 import ---- #
 from utils import *
-from comm import get_connector_type, servo_on, door_on, convey_on, magnet_on
+from comm import get_connector_type, servo_on, door_servo_on, convey_on, magnet_on
 
 
 
 
+
+# ---- main routine ---- #
 def main():
     try:
         rb = setup_robot()
 
         while True:
             try:
-                grip_close()
+                # ---- 하드웨어 초기화 --- #
+                convey_on(4)
+                print("[시작] 컨베이어 시작")
+                time.sleep(3)
+                door_servo_on(7)
+                print("[시작] 도어 서보모터 OFF")
+                grip_open()
                 move_to_home(rb)
                 
                 
-                p1 = Position(500.68, 229.88,   5.74,-176.63,  -0.13, 179.87)
-                p2 = Position(601.28, 129.91, 195.28,-176.38,  -0.28, 179.98)
-                p3 = Position(700.71,  30.49, 196.44,-176.31,  -0.29, 179.93)
-                
-                
-                rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
-                rb.line(p1.offset(dz=50))
-                rb.line(p1)
-                
-                
-                rb.line(p1.offset(dy=-200, dz=100))
-                rb.line(p2.offset(dz=50))
-                rb.line(p2)
-                
-                rb.line(p2.offset(dy=-200, dz=100))
-                rb.line(p3.offset(dz=50))
-                rb.line(p3)
-                
-                
-                rb.line(p3.offset(dz=50))
-                move_to_home(rb)
-                
-                
-                
-                '''
-                # Vision 측에서 커넥터 타입 수신
-                connector = get_connector_type()
+                # ---- 커넥터 인식 루프 ---- #
+                connector = None
+                while connector is None:
+                    connector = get_connector_type()
+                    if connector is None:
+                        print("[MAIN] 커넥터 미인식 → 재시도 중...")
+                        time.sleep(1.0)
 
-                if connector:
-                    print("[MAIN] Received connector:", connector)
+                print("[MAIN] Received connector:", connector)
 
-                    # 커넥터 타입에 따라 동작 분기
-                    if connector == "xt60":
-                        print("[ACTION] XT60 detected → grip open")
-                        grip_open()
+                # ---- 커넥터별 동작 분기 --- #
+                if connector == "xt60":
+                    print("[SEQUENCE_XT60] XT60 루틴 시작")
+                    xt60_routine(rb)
 
-                    elif connector == "xt90":
-                        print("[ACTION] XT90 detected → grip close")
-                        grip_close()
-                    
+                elif connector == "xt90":
+                    print("[SEQUENCE_XT90] XT90 루틴 시작")
+                    xt90_routine(rb)
 
-                    elif connector == "ec3":
-                        print("[ACTION] EC3 detected → move home")
-                        move_to_home(rb)
+                elif connector == "ec3":
+                    print("[SEQUENCE_EC3] EC3 루틴 시작")
+                    ec3_routine(rb)
 
-                    else:
-                        print("[WARNING] Unknown connector type:", connector)
                 else:
-                    print("[MAIN] No connector received. Waiting again...")
+                    print("[WARNING] Unknown connector type:", connector)
 
-                rb.sleep(0.1)  # 루프 간 대기
-                '''
+                rb.sleep(0.1)  # 다음 루프로 천천히 넘어감
+                
+                
+            
                 
                 
                 
@@ -90,8 +76,13 @@ def main():
     finally:
         try:
             print("[FINAL] Returning to home and releasing gripper.")
-            grip_close()
+            grip_open()
             move_to_home(rb)
+            servo_on(1)
+            magnet_on(3)
+            convey_on(5)
+            door_servo_on(7)
+            
         except:
             pass
 
