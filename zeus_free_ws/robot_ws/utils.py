@@ -97,6 +97,7 @@ def xt60_routine(rb):
     
     print("[툴 체인지 루틴] 전자석 ON")
     magnet_on(2) # 전자석 ON -> 커넥터 change
+    print("[툴 체인지 루틴] 툴체인지를 위한 딜레이 2초")
     time.sleep(2) # 툴체인지를 위한 시간 여유
     
     print("[툴 체인지 루틴] 안전한 홈 위치로 복귀")
@@ -106,12 +107,13 @@ def xt60_routine(rb):
     
     
     # ---- MCU 피드백 대기 루프 ---- #
-    print("[XT60_ROUTINE] Waiting for MCU feedback...")
+    print("[MCU로부터 수신 루프] Waiting for MCU feedback...")
     while True:
         if shared.mcu_feedback == 'a':  # 예: 초음파 감지 신호
-            print("[XT60_ROUTINE] Received 'a' feedback from MCU!")
+            print("[MCU로부터 수신 루프] MCU로부터 'a' 문자 수신 받음")
             door_servo_on(6) # 초음파 감지 후, 바로 도어용 서보모터 닫기
             shared.mcu_feedback = None   # 처리 후 초기화
+            print("[MCU로부터 수신 루프] mcu_feedback 플래그 초기화함")
             break
         time.sleep(0.1)  # CPU 점유 방지 (10Hz)
     
@@ -125,6 +127,15 @@ def xt60_routine(rb):
     rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[1]) # xt60 커넥터로 천천히 접근
     print("[커넥터 체결 루틴] 커넥터 체결을 위해 천천히 접근")
+    
+    print("[커넥터 체결 루틴] 전압 측정을 위한 딜레이 2초")
+    time.sleep(2)
+    
+    # ---- 툴 원상복귀 루틴 ---- #
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    rb.line(p_xt60[1].offset(dz=50, dy=-100)) # 안전한 궤적으로 돌리기
+    move_to_home(rb)
     
     
     

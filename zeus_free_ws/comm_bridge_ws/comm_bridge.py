@@ -29,16 +29,20 @@ controller_lock = threading.Lock()
 
 
 def send_to_controller(msg):
-    """로봇 컨트롤러로 TCP 송신"""
-    global controller_socket
+    """로봇 컨트롤러로 TCP 송신 (ROBOT_IP:ROBOT_PORT로 능동 접속해서 1바이트 전송)"""
     try:
-        with controller_lock:
-            if controller_socket:
-                controller_socket.send(msg.encode('utf-8'))
-                print(f"[TCP→Controller] '{msg}'")
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1.0)
+        s.connect((ROBOT_IP, ROBOT_PORT))  # ← 5006으로 직접 접속!
+        s.send(msg.encode('utf-8'))
+        print(f"[TCP→Controller:{ROBOT_IP}:{ROBOT_PORT}] '{msg}'")
+        try:
+            s.shutdown(socket.SHUT_RDWR)
+        except:
+            pass
+        s.close()
     except Exception as e:
         print("[ERROR][TCP Send]:", e)
-        controller_socket = None
 
 
 def serial_reader(ser):
@@ -84,18 +88,19 @@ def receive_command_from_robot():
     try:
         while True:
             try:
+                # 🔹 Robot Controller 연결 대기
                 c, a = s.accept()
                 with controller_lock:
                     controller_socket = c
                 print("[CONNECTED] Robot Controller:", a)
-            except socket.timeout:
-                continue
 
-            try:
                 c.settimeout(1.0)
+
+                # 🔹 연결이 유지되는 동안 계속 수신 (keep-alive)
                 while True:
-                    data = c.recv(1)  # 한 문자씩만 수신
+                    data = c.recv(1)  # 한 문자씩 수신
                     if not data:
+                        print("[WARN] Controller connection closed by remote host.")
                         break
 
                     msg = data.decode('utf-8', errors='ignore')
@@ -109,19 +114,34 @@ def receive_command_from_robot():
                     else:
                         print(f"[WARN] Ignored Robot char: '{msg}'")
 
+            except socket.timeout:
+                # 연결이 없으면 다시 대기
+                continue
+            except Exception as e:
+                print("[ERROR][TCP RX]:", e)
+                continue
+
             finally:
+                # 🔹 연결이 끊기면 소켓 정리 후 재대기
+                try:
+                    c.close()
+                except:
+                    pass
                 with controller_lock:
                     controller_socket = None
-                c.close()
-                print("[DISCONNECTED] Controller closed.")
+                print("[DISCONNECTED] Controller closed. Waiting for reconnection...")
 
     except KeyboardInterrupt:
         print("\n[CLOSED] KeyboardInterrupt")
     finally:
-        s.close()
-        ser_0.close()
-        ser_1.close()
+        try:
+            s.close()
+            ser_0.close()
+            ser_1.close()
+        except:
+            pass
         print("[CLOSED] sockets & serial closed")
+
 
 
 # ------------------ 메인 실행부 ------------------
