@@ -10,7 +10,9 @@ from comm import send_vacuum_on  # 진공 ON/OFF 재사용
 from pose_table import *
 
 
-HOME_JOINT = (75.57, 6.02, 69.57, 0.00, 104.41, 75.57)
+HOME_JOINT = Joint(75.04,   6.73,  58.85,   0.00, 114.42,  73.04)
+HOME_POSE_1 = Position(406.79,  -5.16, 620.01,  92.00,   0.00, 180.00) # -> 이걸로 하면 안 됨
+HOME_POSE_2 = Position(406.79,  -5.16, 720.01,  92.00,   0.00, 180.00)
 TOOL_DEF   = (1, 0, 0, 100, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
 
 
@@ -50,8 +52,12 @@ def grip_close():
 
 def move_to_home(rb):
     '''홈 위치로 복귀'''
-    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=300, acctime=0.3, dacctime=0.3))
-    rb.move(Joint(*HOME_JOINT))
+    rb.motionparam(MotionParam(jnt_speed=10, lin_speed=20, acctime=0.3, dacctime=0.3, posture=7))
+    rb.move(HOME_JOINT)
+    print("조인트 기반 완료")
+    
+    rb.move(HOME_POSE_1)
+    print("좌표 기반 완료")
     print("[HOME] Home 위치로 복귀 완료")
     print_current_pose(rb,"Home")
 
@@ -62,6 +68,7 @@ def move_to_home(rb):
 # -----------------------------
 # 포즈 정렬/변환
 # -----------------------------
+'''
 def cam_to_tcp(P_cam):
     """
     카메라[mm] -> TCP[mm] 좌표계 변환
@@ -71,6 +78,21 @@ def cam_to_tcp(P_cam):
          [0,-1,0],
          [0,0,1]]
     t = [35.0-7.0, 30.0+19.0, -28.0]  # 현장 보정값
+    x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
+    y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
+    z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
+    return [x, y, z]
+'''
+
+def cam_to_tcp(P_cam):
+    """
+    카메라[mm] -> TCP[mm] 좌표계 변환
+    R = diag(-1,-1,1), t = [+32.0, +40.0, -28.0]
+    """
+    R = [[-1,0,0],
+         [0,-1,0],
+         [0,0,1]]
+    t = [35.0 - 5, 40 + 3, -28.0]  # 현장 보정값 -> x에 +0
     x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
     y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
     z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
@@ -106,7 +128,8 @@ def pick_sequence(rb, P_tcp):
     # P_tcp : 상대 toolmove가 아니라, '픽까지 필요한 Δx,Δy,Δz'를 의미(프로젝트 정의 유지)
     rb.asyncm(1)
     
-    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
+    # rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=20, lin_speed=50, acctime=0.3, dacctime=0.3))
     rb.toolmove(dx=P_tcp[0], dy=P_tcp[1], dz=P_tcp[2] - 40)
     
     rb.join()
@@ -114,8 +137,9 @@ def pick_sequence(rb, P_tcp):
     
     send_vacuum_on(True)
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3))
-    rb.toolmove(dx=0, dy=0, dz=30 + 5)  
+    # rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.toolmove(dx=0, dy=0, dz=35)  
     time.sleep(0.2) 
     print_current_pose(rb, "공압 On & Pick 위치 도달")
 
@@ -141,7 +165,7 @@ def rotate_and_home(rb, delta_deg, lift=150.0):
 
     rb.asyncm(1)
     try:
-        rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+        rb.motionparam(MotionParam(jnt_speed=20, lin_speed=50, acctime=0.3, dacctime=0.3))
         
         # (a) 먼저 위로: Position에는 line()을 써야 함
         rb.line(p_up)
@@ -186,12 +210,12 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     
     # 접근
     p_down  = Position(x, y, z + float(approach), rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=20, lin_speed=50, acctime=0.3, dacctime=0.3))
     rb.move(p_down)
     
     # 실제로 놓기
     p_place = Position(x, y, z, rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=40, acctime=0.2, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.2, dacctime=0.3))
     rb.move(p_place)
     
     
@@ -200,16 +224,16 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     # 흡착 해제
     if send_vacuum_on(1):
         send_vacuum_on(0)
-        time.sleep(0.3) # vacuum off delay
+        time.sleep(0.5) # vacuum off delay
 
     # 3) 현재 자세에서 '월드 Z로' 위로 먼저
     cur = rb.getpos().pos2list()
     x, y, z, rz, ry, rx = cur[:6]
-    rb.motionparam(MotionParam(jnt_speed=35, lin_speed=350, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=20, lin_speed=50, acctime=0.3, dacctime=0.3))
     rb.line(Position(x, y, z + 120.0, rz, ry, rx))  # 위로 120mm
    
 
-    rb.move(Joint(*HOME_JOINT))
+    rb.move(HOME_JOINT)
     
     rb.asyncm(2)
     rb.join()

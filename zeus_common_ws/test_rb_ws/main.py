@@ -39,7 +39,8 @@ def main():
                     x, y, z, rz, ry, rx = cur[:6]
 
                     # Z축으로 150mm 상승
-                    rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
+                    # rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
+                    rb.motionparam(MotionParam(jnt_speed=30, lin_speed=100, acctime=0.3, dacctime=0.3))
                     p_up = Position(x, y, z + 150.0, rz, ry, rx)
                     rb.line(p_up)
                     
