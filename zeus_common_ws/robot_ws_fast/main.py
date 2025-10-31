@@ -58,11 +58,11 @@ def main():
                 # - 집은 블록의 color를 통해 목표 위치, 조정할 angle 정보 추출
                 # - 따 놓은 TCP포즈를 그대로 쓰며, 회전(rz, ry, rx)은 현재 로봇의 회전값으로 덮어 사용
                 eval_tcp_pose, delta_angle = get_target_pose_by_color(color)
-                if eval_tcp_pose is None:
-                    print("[ERROR] No available target for color '%s'" % color)
-                    send_vacuum_on(0)  # 안전하게 해제
-                    continue
+                print("[DEBUG] Table Pose:", eval_tcp_pose)
+                print("[DEBUG] Robot Pose Rz:", rb.getpos().pos2list()[3])
+
                 place_target = tcp_pose_with_current_rot(rb, eval_tcp_pose)
+                print("[DEBUG] After Overwrite:", place_target)
                 place_sequence(rb, place_target, delta_angle, lift=150.0, approach=30.0)
                 
             except Robot_emo:

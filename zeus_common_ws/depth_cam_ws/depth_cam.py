@@ -14,10 +14,10 @@ SEND_MIN_INTERVAL = 0.05
 # ───────── 1) HSV 색 범위(기본) ─────────
 # 튜닝 필요. 색상별로 H,S,V 하한을 낮춤(조명에 가장 민감한건 s와 v하한값)
 COLOR_RANGES = {
-    "Red":    [ (np.array([  0, 80, 50], np.uint8), np.array([  3,255,255], np.uint8)),
-                (np.array([170,80, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
+    "Red":    [ (np.array([  0, 100, 50], np.uint8), np.array([  3,255,255], np.uint8)),
+                (np.array([170,100, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
     "Pink":   [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ],
-    "Yellow": [ (np.array([ 20,120, 50], np.uint8), np.array([ 35,255,255], np.uint8)) ],
+    "Yellow": [ (np.array([ 20, 90, 50], np.uint8), np.array([ 35,255,255], np.uint8)) ],
     "Green":  [ (np.array([ 40, 80, 50], np.uint8), np.array([ 85,255,255], np.uint8)) ],
     "Blue":   [ (np.array([ 88, 60, 50], np.uint8), np.array([118,255,255], np.uint8)) ],
     "Purple": [ (np.array([120, 50, 50], np.uint8), np.array([144,255,255], np.uint8)) ],
