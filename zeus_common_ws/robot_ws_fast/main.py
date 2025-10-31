@@ -40,7 +40,7 @@ def main():
 
                     # Z축으로 150mm 상승
                     # rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
-                    rb.motionparam(MotionParam(jnt_speed=30, lin_speed=100, acctime=0.3, dacctime=0.3))
+                    rb.motionparam(MotionParam(jnt_speed=30, lin_speed=100, acctime=0.3, dacctime=0.3, posture=7))
                     p_up = Position(x, y, z + 150.0, rz, ry, rx)
                     rb.line(p_up)
                     
@@ -58,6 +58,10 @@ def main():
                 # - 집은 블록의 color를 통해 목표 위치, 조정할 angle 정보 추출
                 # - 따 놓은 TCP포즈를 그대로 쓰며, 회전(rz, ry, rx)은 현재 로봇의 회전값으로 덮어 사용
                 eval_tcp_pose, delta_angle = get_target_pose_by_color(color)
+                if eval_tcp_pose is None:
+                    print("[ERROR] No available target for color '%s'" % color)
+                    send_vacuum_on(0)  # 안전하게 해제
+                    continue
                 place_target = tcp_pose_with_current_rot(rb, eval_tcp_pose)
                 place_sequence(rb, place_target, delta_angle, lift=150.0, approach=30.0)
                 
@@ -73,12 +77,8 @@ def main():
                 break   # 또는 상황에 따라 continue 
             except ConnectionError:
                 print("[CAM] Reconnecting camera...")
-                try:
-                    conn.close()
-                except:
-                    pass
-                _, conn = init_cam_server()
-                continue
+                continue  # 다음 loop에서 recv_cam_info()를 다시 호출
+
     finally:
         try:
             send_vacuum_on(0)

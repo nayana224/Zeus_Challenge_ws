@@ -23,7 +23,7 @@ def setup_robot():
     IOinit()
     rb.settool(*TOOL_DEF)
     rb.changetool(TOOL_DEF[0]) # tool 1번
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3, posture=7))
     return rb
 
 def print_current_pose(rb, label="NOW"):
@@ -91,7 +91,7 @@ def cam_to_tcp(P_cam):
     R = [[-1,0,0],
          [0,-1,0],
          [0,0,1]]
-    t = [35.0 - 4, 40 + 8, -28.0]  # 현장 보정값 -> x에 +0
+    t = [35.0 - 4 + 5, 40 + 8 -7, -28.0]  # 현장 보정값 -> x에 +0
     x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
     y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
     z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
@@ -128,16 +128,17 @@ def pick_sequence(rb, P_tcp):
     rb.asyncm(1)
     
     # rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
-    rb.motionparam(MotionParam(jnt_speed=60, lin_speed=400, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=70, lin_speed=600, acctime=0.3, dacctime=0.3, posture=7))
     rb.toolmove(dx=P_tcp[0], dy=P_tcp[1], dz=P_tcp[2] - 40)
     
     rb.join()
     rb.asyncm(2)
     
     send_vacuum_on(True)
-    
+    time.sleep(0.15)  # 흡착 압착/실링 안정화
+
     # rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3))
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=30, acctime=0.3, dacctime=0.3, posture=7))
     rb.toolmove(dx=0, dy=0, dz=35+1)  
     time.sleep(0.2) 
     print_current_pose(rb, "공압 On & Pick 위치 도달")
@@ -164,7 +165,7 @@ def rotate_and_home(rb, delta_deg, lift=150.0):
 
     rb.asyncm(1)
     try:
-        rb.motionparam(MotionParam(jnt_speed=70, lin_speed=500, acctime=0.3, dacctime=0.3))
+        rb.motionparam(MotionParam(jnt_speed=70, lin_speed=500, acctime=0.3, dacctime=0.3, posture=7))
         
         # (a) 먼저 위로: Position에는 line()을 써야 함
         rb.line(p_up)
@@ -175,12 +176,7 @@ def rotate_and_home(rb, delta_deg, lift=150.0):
         rb.join()
 
         print_current_pose(rb, "Place 상공에 도달")
-        '''
-        # 상태 로그
-        lst = rb.getpos().pos2list()
-        rz2, ry2, rx2 = lst[3:6]
-        print("TCP: rz=%.2f°, ry=%.2f°, rx=%.2f°" % (rz2, ry2, rx2))
-        '''
+
 
     except Exception as e:
         print("[Error] rotate_and_home 실패:", e)
@@ -199,9 +195,12 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     # 4) 상공으로 복귀(line)
     # target_tcp : (x,y,z,rz,ry,rx) → 절대 TCP 좌표
 
+
+    # 오프셋 제거??????????????????????????????????? -> 좌표테이블의 z축 그대로 -100해주기??????????????
     x, y, z, rz, ry, rx = target_tcp
-    z = float(z) - 95.0
-    
+    x = float(x); y = float(y); z = float(z)  # 필요 시 실수형 변환
+    z = float(z) - 90.0
+
     # 목표한 블록 위치의 각도 보정
     rz = rz + float(delta_angle)
 
@@ -209,13 +208,15 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     
     # 접근
     p_down  = Position(x, y, z + float(approach), rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=60, lin_speed=500, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=60, lin_speed=700, acctime=0.3, dacctime=0.3, posture=7))
     rb.move(p_down)
+    # rb.line(p_down)
     
     # 실제로 놓기
     p_place = Position(x, y, z, rz, ry, rx)
-    rb.motionparam(MotionParam(jnt_speed=20, lin_speed=30, acctime=0.2, dacctime=0.3))
-    rb.move(p_place)
+    rb.motionparam(MotionParam(jnt_speed=20, lin_speed=30, acctime=0.2, dacctime=0.3, posture=7))
+    # rb.move(p_place)
+    rb.line(p_place)
     
     
     rb.join()
@@ -228,10 +229,10 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     # 3) 현재 자세에서 '월드 Z로' 위로 먼저
     cur = rb.getpos().pos2list()
     x, y, z, rz, ry, rx = cur[:6]
-    rb.motionparam(MotionParam(jnt_speed=60, lin_speed=600, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=60, lin_speed=600, acctime=0.3, dacctime=0.3, posture=7))
     rb.line(Position(x, y, z + 120.0, rz, ry, rx))  # 위로 120mm
    
-
+    rb.join()
     rb.move(HOME_JOINT)
     
     rb.asyncm(2)

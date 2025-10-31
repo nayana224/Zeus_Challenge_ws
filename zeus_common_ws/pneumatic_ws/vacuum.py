@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# ============================================================
+# [COMM BRIDGE] TCP → Serial 브리지 (Vacuum 제어용)
+#  - 제우스 로봇 컨트롤러(PC 프로그램 등)로부터 TCP 명령(0/1)을 수신
+#  - 이를 시리얼 포트를 통해 MCU(UART)로 전달
+#  - 0: Vacuum OFF, 1: Vacuum ON 등으로 사용 가능
+# ============================================================
 
 import socket
 import serial

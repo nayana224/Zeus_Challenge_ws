@@ -1,4 +1,5 @@
-# d435_multi_color_center_3d_angleXYZ_single_live_once_tx_threaded_autominZ_lock_debugContours_nolimit_rangepose_pink_after_red_stabilized.py
+# 튜닝 확인 순서
+# 1. HSV -> 2. Red vs Pink 경계 -> 3. 면적계수(min_area 등) -> 4. 일반분리, 강분리 파라미터
 import cv2, numpy as np, pyrealsense2 as rs, math, time, argparse, sys, select, json, socket, threading, queue
 from time import monotonic as now
 
@@ -11,17 +12,22 @@ PERSISTENT_CONN = False
 SEND_MIN_INTERVAL = 0.05
 
 # ───────── 1) HSV 색 범위(기본) ─────────
+# 튜닝 필요. 색상별로 H,S,V 하한을 낮춤(조명에 가장 민감한건 s와 v하한값)
 COLOR_RANGES = {
     "Red":    [ (np.array([  0, 80, 50], np.uint8), np.array([  3,255,255], np.uint8)),
                 (np.array([170,80, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
     "Pink":   [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ],
     "Yellow": [ (np.array([ 20,120, 50], np.uint8), np.array([ 35,255,255], np.uint8)) ],
     "Green":  [ (np.array([ 40, 80, 50], np.uint8), np.array([ 85,255,255], np.uint8)) ],
-    "Blue":   [ (np.array([ 88, 60, 50], np.uint8), np.array([125,255,255], np.uint8)) ],
+    "Blue":   [ (np.array([ 88, 60, 50], np.uint8), np.array([118,255,255], np.uint8)) ],
     "Purple": [ (np.array([120, 50, 50], np.uint8), np.array([144,255,255], np.uint8)) ],
 }
 
 # ───────── 색상별 분리 파라미터 ─────────
+# 튜닝 필요
+# dist: 올리면 더 잘게 찢. 내리면 덜 찢
+# neck: 크면 하나의 블럭 둘로 나눔. 작으면 약하게 분리
+# rm: 크면 얇은 조각 버림(노이즈에 강함), 작으면 얇은 조각 살림(과분할 위험)
 PER_COLOR_SPLIT = {
     "Green":  {"dist": 0.50, "neck": 10, "rm": 0.12},
     "Pink":   {"dist": 0.60, "neck": 15, "rm": 0.18},
@@ -43,6 +49,7 @@ PER_COLOR_SPLIT_STRONG = {
 
 # ───────── 1-A) Pink 동적 스위칭용 HSV 프리셋 ─────────
 PINK_HSV_INIT = [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]   # 시작값(기존)
+# 튜닝필요. pink가 red로 오검출되면 범위를 더 좁게 수정. pink 못잡으면 pink범위 더 넓게
 PINK_HSV_AFTER_RED = [ (np.array([  1, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]  # Red 사라진 뒤 활성값
 
 def get_active_color_ranges(pink_enabled: bool):
@@ -75,7 +82,7 @@ LOCK_DIST_PX_MAX   = 60
 LOCK_DZ_MM_MAX     = 10.0
 LOCK_MISS_MAX      = 5
 LOCK_EMA_ALPHA     = 0.35
-LABEL_COOLDOWN_FRAMES = 8   # 락 진입 후 N프레임은 라벨 전환 금지
+LABEL_COOLDOWN_FRAMES = 8   # 락 진입 후 8프레임동안 라벨 전환 금지
 
 # 면적 우선 범위
 PREF_AREA_MIN = 1650
@@ -84,6 +91,7 @@ def _is_pref_area(a):
     return (PREF_AREA_MIN <= int(a) <= PREF_AREA_MAX)
 
 # ---- Red/Pink 보수적 판별 파라미터 ----
+# 튜닝 필요. red 블럭이 자꾸 pink로 바꾸면 CBCR값 올리거나 BR값 올림. 반대로 pink를 red로 바꾸면 값 내림.
 CBCR_THRESH = 0.52   # Cb/Cr 임계값(↑할수록 Pink로 덜 뒤집힘)
 BR_THRESH   = 0.48   # B/R   임계값(↑할수록 Pink로 덜 뒤집힘)
 
@@ -114,7 +122,7 @@ def parse_initial_args():
     parser.add_argument("--persist", action="store_true")
     return parser.parse_args()
 
-# ───────── 네트워크 송신 보일러플레이트 ─────────
+# ───────── 네트워크 송신 클래스 ─────────
 class TcpSender:
     def __init__(self, ip, port, timeout=NET_TIMEOUT_S, persistent=False):
         self.ip = ip; self.port = port; self.timeout = timeout
@@ -156,6 +164,7 @@ class TcpSender:
             except: pass
             self.sock = None
 
+#최신큐
 class LatestQueue:
     def __init__(self):
         self.q = queue.Queue(maxsize=1); self.lock = threading.Lock()
@@ -168,7 +177,7 @@ class LatestQueue:
     def get_or_none(self, timeout=None):
         try: return self.q.get(timeout=timeout)
         except queue.Empty: return None
-
+#송신클래스
 class TxWorker(threading.Thread):
     def __init__(self, ip, port, persistent, stop_event: threading.Event, payload_queue: LatestQueue, min_interval=SEND_MIN_INTERVAL):
         super().__init__(daemon=True)
@@ -428,7 +437,7 @@ def split_touching_strong(mask_bin, color_bgr, min_area=MIN_AREA,
         contours = _run(mask_bin, strong_dist, strong_neck, add_corner_seeds=True)
     return contours
 
-# ───────── 깊이 유틸 ─────────
+# ───────── 깊이 유틸리티 ─────────
 def depth_at(cx, cy, depth, k=3):
     h, w = depth.shape
     x0, x1 = max(cx-k, 0), min(cx+k+1, w)
@@ -643,7 +652,7 @@ def main():
     # ───── Pink 동적 상태 ─────
     pink_enabled = False
     red_absent_streak = 0
-    RED_GONE_FRAMES = 12  # 연속 N프레임 동안 Red 0개면 Pink 활성화
+    RED_GONE_FRAMES = 12  # 연속 12프레임 동안 Red 0개면 Pink 활성화
 
     try:
         while True:

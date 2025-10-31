@@ -40,7 +40,7 @@ def main():
 
                     # Z축으로 150mm 상승
                     # rb.motionparam(MotionParam(jnt_speed=40, lin_speed=350, acctime=0.3, dacctime=0.3))
-                    rb.motionparam(MotionParam(jnt_speed=30, lin_speed=100, acctime=0.3, dacctime=0.3))
+                    rb.motionparam(MotionParam(jnt_speed=30, lin_speed=100, acctime=0.3, dacctime=0.3, posture=7))
                     p_up = Position(x, y, z + 150.0, rz, ry, rx)
                     rb.line(p_up)
                     
@@ -73,12 +73,8 @@ def main():
                 break   # 또는 상황에 따라 continue 
             except ConnectionError:
                 print("[CAM] Reconnecting camera...")
-                try:
-                    conn.close()
-                except:
-                    pass
-                _, conn = init_cam_server()
-                continue
+                continue  # 다음 loop에서 recv_cam_info()를 다시 호출
+
     finally:
         try:
             send_vacuum_on(0)

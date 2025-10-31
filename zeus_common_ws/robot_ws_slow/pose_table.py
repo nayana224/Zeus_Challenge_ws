@@ -1,5 +1,19 @@
 # -*- coding: utf-8 -*-
 
+'''
+Pos,  -435.07,  97.44,-745.28, -88.45,  -0.04,-179.93, 7, 00000000   
+TCP,  -686.08,  91.25, 154.42, -88.45,  -0.04,-179.93, 0, 00000000   
+Jnt,  -105.89,  52.63,  74.49,   0.02,  52.96,  72.55   
+Limit, Normal, Normal, Normal, Normal, Normal, Normal
+
+Singular Status:
+  [0] Right/Left
+  [0] Upper/Lower elbow
+  [0] Wrist flip/non flip
+  [0] soft limit
+  [0] unreachable point
+
+'''
 TARGETS = {
  "No1":[
   (1,-681.22,-145.94,  145.02, -79.59,  -0.13, 179.99,"yellow","+90"),
