@@ -8,7 +8,7 @@ from comm import get_connector_type, servo_on, door_servo_on, convey_on, magnet_
 import shared
 
 HOME_JOINT = (75.57, 6.02, 69.57, 0.00, 104.41, 75.57)
-# TOOL_DEF   = (1, 0, 0, 190, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
+# TOOL_DEF   = (1, 0, 30, 200, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
 TOOL_DEF   = (1, 0, 0, 0, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
 
 
@@ -78,20 +78,36 @@ def grip_open():
 
 def xt60_routine(rb):
     # ---- 초기화 루틴 ---- #
+    '''
+             X/J1,   Y/J2,   Z/J3,  Rz/J4,  Ry/J5,  Rx/J6, P, Mt
+    Pos,   123.34, 636.04, 320.29, -95.31,   0.69, 179.22, 7, 00000000   
+    TCP,   123.34, 636.04, 320.29, -95.31,   0.69, 179.22, 0, 00000000   
+    Jnt,   160.05,  37.73,  76.07,   1.02,  65.73, -15.06   
+    Limit, Normal, Normal, Normal, Normal, Normal, Normal
+
+    Singular Status:
+    [0] Right/Left
+    [0] Upper/Lower elbow
+    [0] Wrist flip/non flip
+    [0] soft limit
+    [0] unreachable point
+
+    '''
+    
     p_xt60 = [
-        Position(694.50, 46.65, 267.43, 178.89, 1.77, 179.82), # 툴 체인지 좌표
-        Position(99.56, 647.15, 313.52, -89.12, 0.58, 179.78) # 커넥터 체결 위치
+        Position(496.32, 245.10, 265.14, 173.14,   0.87,-178.36), # 툴 체인지 좌표
+        Position(123.34, 636.04, 320.29, -95.31,   0.69, 179.22) # 커넥터 체결 위치
     ]
     print("[XT60_ROUTINE] Started.")
     convey_on(4)
 
     # ---- 툴 체인지 루틴 ---- #
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=200, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     print("[툴 체인지 루틴] 커넥터 전자석 상공으로 위치")
     
     print("[툴 체인지 루틴] xt60 커넥터 전자석으로 천천히 접근")
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=15, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[0]) # xt60 커넥터로 천천히 접근
     
     print("[툴 체인지 루틴] 전자석 ON")
@@ -102,8 +118,8 @@ def xt60_routine(rb):
     print("[툴 체인지 루틴] 안전한 홈 위치로 복귀")
     rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[0].offset(dz=100)) # 상공으로 위치 후,
-    move_to_home(rb) # 안전한 홈 위치로 복귀
-    
+    # move_to_home(rb) # 안전한 홈 위치로 복귀
+    rb.line(p_xt60[1].offset(dz=60)) # xt60 배터리 상공으로 위치 후 대기
     
     # ---- MCU 피드백 대기 루프 ---- #
     print("[MCU로부터 수신 루프] Waiting for MCU feedback...")
@@ -119,38 +135,38 @@ def xt60_routine(rb):
     # ---- 커넥터 체결 루틴 ---- #
     print("커넥터 체결 루틴 시작.")
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
-    print("[커넥터 체결 루틴] 배터리 상공으로 위치")
+    # rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
+    # rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    # print("[커넥터 체결 루틴] 배터리 상공으로 위치")
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=10, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[1]) # xt60 커넥터로 천천히 접근
     print("[커넥터 체결 루틴] 커넥터 체결을 위해 천천히 접근")
     
     print("[커넥터 체결 루틴] 전압 측정을 위한 딜레이 2초")
     time.sleep(2)
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
     
     # ---- 툴 원상복귀 루틴 ---- #
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt60[0].offset(dz=200)) # xt60 커넥터 상공으로 위치
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=10, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    rb.line(p_xt60[1].offset(dz=50, dy=-100)) # 안전한 궤적으로 돌리기
+    
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=200, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt60[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     print("[툴 체인지 루틴] 커넥터 전자석 상공으로 위치")
     
-    
     print("[툴 체인지 루틴] xt60 커넥터 전자석으로 천천히 접근")
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=15, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[0]) # xt60 커넥터로 천천히 접근
     
-    print("[툴 체인지 루틴] 전자석 ON")
+    print("[툴 체인지 루틴] 전자석 OFF")
     magnet_on(3) # 전자석 ON -> 커넥터 change
     print("[툴 체인지 루틴] 툴체인지를 위한 딜레이 2초")
     time.sleep(2) # 툴체인지를 위한 시간 여유
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt60[0].offset(dz=100))
+    rb.line(p_xt60[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     move_to_home(rb)
-    
+
     
     
     
@@ -159,32 +175,31 @@ def xt90_routine(rb):
     print("[XT90_ROUTINE] Started.")
     # ---- 초기화 루틴 ---- #
     p_xt90 = [
-        Position(486.91, 243.62, 265.51, 174.88, 1.94, 179.69), # 툴 체인지 좌표
-        Position(114.46, 637.47, 305.93, -96.41,   0.77, 179.83) # 커넥터 체결 위치
+        Position(496.32, 245.10, 265.14, 173.14,   0.87,-178.36), # 툴 체인지 좌표
+        Position(123.34, 636.04, 320.29, -95.31,   0.69, 179.22) # 커넥터 체결 위치
     ]
+    print("[XT60_ROUTINE] Started.")
     convey_on(4)
 
     # ---- 툴 체인지 루틴 ---- #
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[0].offset(dz=50)) # xt90 커넥터 상공으로 위치
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=200, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt90[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     print("[툴 체인지 루틴] 커넥터 전자석 상공으로 위치")
     
-    print("[툴 체인지 루틴] xt90 커넥터 전자석으로 천천히 접근")
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[0]) # xt90 커넥터로 천천히 접근
-    
-    
+    print("[툴 체인지 루틴] xt60 커넥터 전자석으로 천천히 접근")
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=15, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt90[0]) # xt60 커넥터로 천천히 접근
     
     print("[툴 체인지 루틴] 전자석 ON")
     magnet_on(2) # 전자석 ON -> 커넥터 change
     print("[툴 체인지 루틴] 툴체인지를 위한 딜레이 2초")
-    time.sleep(1.6) # 툴체인지를 위한 시간 여유
+    time.sleep(2) # 툴체인지를 위한 시간 여유
     
     print("[툴 체인지 루틴] 안전한 홈 위치로 복귀")
     rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
     rb.line(p_xt90[0].offset(dz=100)) # 상공으로 위치 후,
-    move_to_home(rb) # 안전한 홈 위치로 복귀
-    
+    # move_to_home(rb) # 안전한 홈 위치로 복귀
+    rb.line(p_xt90[1].offset(dz=60)) # xt60 배터리 상공으로 위치 후 대기
     
     # ---- MCU 피드백 대기 루프 ---- #
     print("[MCU로부터 수신 루프] Waiting for MCU feedback...")
@@ -200,40 +215,40 @@ def xt90_routine(rb):
     # ---- 커넥터 체결 루틴 ---- #
     print("커넥터 체결 루틴 시작.")
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[1].offset(dz=50)) # xt90 배터리 상공으로 위치
-    print("[커넥터 체결 루틴] 배터리 상공으로 위치")
+    # rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
+    # rb.line(p_xt90[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    # print("[커넥터 체결 루틴] 배터리 상공으로 위치")
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[1]) # xt90 커넥터로 천천히 접근
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=10, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt90[1]) # xt60 커넥터로 천천히 접근
     print("[커넥터 체결 루틴] 커넥터 체결을 위해 천천히 접근")
     
     print("[커넥터 체결 루틴] 전압 측정을 위한 딜레이 2초")
     time.sleep(2)
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[1].offset(dz=50)) # xt90 배터리 상공으로 위치
-    print("[커넥터 체결 루틴] 배터리 상공으로 위치")
-    
     # ---- 툴 원상복귀 루틴 ---- #
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[0].offset(dz=100)) # xt60 커넥터 상공으로 위치
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=10, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt90[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    rb.line(p_xt90[1].offset(dz=50, dy=-100)) # 안전한 궤적으로 돌리기
+    
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=200, acctime=0.3, dacctime=0.3))
+    rb.line(p_xt90[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     print("[툴 체인지 루틴] 커넥터 전자석 상공으로 위치")
     
-    rb.line(p_xt90[0].offset(dz=50))
-    
     print("[툴 체인지 루틴] xt60 커넥터 전자석으로 천천히 접근")
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=20, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=15, acctime=0.3, dacctime=0.3))
     rb.line(p_xt90[0]) # xt60 커넥터로 천천히 접근
     
     print("[툴 체인지 루틴] 전자석 OFF")
-    magnet_on(3) # 전자석 OFF -> 커넥터 제자리
+    magnet_on(3) # 전자석 ON -> 커넥터 change
     print("[툴 체인지 루틴] 툴체인지를 위한 딜레이 2초")
     time.sleep(2) # 툴체인지를 위한 시간 여유
     
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
-    rb.line(p_xt90[0].offset(dz=100)) # xt90 배터리 상공으로 위치
+    rb.line(p_xt90[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     move_to_home(rb)
+    
+    
+    
 
 def ec3_routine(rb):
     print("[EC3_ROUTINE] Started.")

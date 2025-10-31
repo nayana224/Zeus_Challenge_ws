@@ -43,7 +43,11 @@ def main():
         
         while shared.running:
             try:               
+                # move_to_home(rb)
+                # xt60_routine(rb)
                 magnet_on(2)
+                convey_on(5)
+                door_servo_on(6)
                       
                 
             except Robot_emo:

@@ -16,9 +16,9 @@ SEND_MIN_INTERVAL = 0.05
 COLOR_RANGES = {
     "Red":    [ (np.array([  0, 100, 50], np.uint8), np.array([  3,255,255], np.uint8)),
                 (np.array([170,100, 50], np.uint8), np.array([180,255,255], np.uint8)) ],
-    "Pink":   [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ],
+    "Pink":   [ (np.array([  4, 20, 10], np.uint8), np.array([ 19,255,255], np.uint8)) ],
     "Yellow": [ (np.array([ 20, 90, 50], np.uint8), np.array([ 35,255,255], np.uint8)) ],
-    "Green":  [ (np.array([ 40, 80, 50], np.uint8), np.array([ 85,255,255], np.uint8)) ],
+    "Green":  [ (np.array([ 40, 30, 30], np.uint8), np.array([ 85,255,255], np.uint8)) ],
     "Blue":   [ (np.array([ 88, 60, 50], np.uint8), np.array([118,255,255], np.uint8)) ],
     "Purple": [ (np.array([120, 50, 50], np.uint8), np.array([144,255,255], np.uint8)) ],
 }
@@ -50,7 +50,7 @@ PER_COLOR_SPLIT_STRONG = {
 # ───────── 1-A) Pink 동적 스위칭용 HSV 프리셋 ─────────
 PINK_HSV_INIT = [ (np.array([  4, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]   # 시작값(기존)
 # 튜닝필요. pink가 red로 오검출되면 범위를 더 좁게 수정. pink 못잡으면 pink범위 더 넓게
-PINK_HSV_AFTER_RED = [ (np.array([  1, 60, 50], np.uint8), np.array([ 19,255,255], np.uint8)) ]  # Red 사라진 뒤 활성값
+PINK_HSV_AFTER_RED = [ (np.array([  4, 20, 10], np.uint8), np.array([ 19,255,255], np.uint8)) ]  # Red 사라진 뒤 활성값
 
 def get_active_color_ranges(pink_enabled: bool):
     active = dict(COLOR_RANGES)

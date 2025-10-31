@@ -8,9 +8,8 @@ from comm import get_connector_type, servo_on, door_servo_on, convey_on, magnet_
 import shared
 
 HOME_JOINT = (75.57, 6.02, 69.57, 0.00, 104.41, 75.57)
-# TOOL_DEF   = (1, 0, 0, 190, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
-TOOL_DEF   = (1, 0, 0, 0, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
-
+# TOOL_DEF   = (1, 0, 30, 200, 0, 0, 0)   # (툴번호, x,y,z,rz,ry,rx)
+TOOL_DEF   = (1, 0, 0, 0, 0, 0, 0)
 
 p_xt90 = [
     (0, 0, 0, 0, 0, 0),
@@ -78,15 +77,31 @@ def grip_open():
 
 def xt60_routine(rb):
     # ---- 초기화 루틴 ---- #
+    '''
+             X/J1,   Y/J2,   Z/J3,  Rz/J4,  Ry/J5,  Rx/J6, P, Mt
+    Pos,   123.34, 636.04, 320.29, -95.31,   0.69, 179.22, 7, 00000000   
+    TCP,   123.34, 636.04, 320.29, -95.31,   0.69, 179.22, 0, 00000000   
+    Jnt,   160.05,  37.73,  76.07,   1.02,  65.73, -15.06   
+    Limit, Normal, Normal, Normal, Normal, Normal, Normal
+
+    Singular Status:
+    [0] Right/Left
+    [0] Upper/Lower elbow
+    [0] Wrist flip/non flip
+    [0] soft limit
+    [0] unreachable point
+
+    '''
+    
     p_xt60 = [
-        Position(491.98, 247.26, 280.58, 177.96,   0.93,-178.57), # 툴 체인지 좌표
-        Position(167.88, 621.74,  93.01, -83.85,  -0.02, 179.97) # 커넥터 체결 위치
+        Position(496.32, 245.10, 265.14, 173.14,   0.87,-178.36), # 툴 체인지 좌표
+        Position(123.34, 636.04, 320.29, -95.31,   0.69, 179.22) # 커넥터 체결 위치
     ]
     print("[XT60_ROUTINE] Started.")
     convey_on(4)
 
     # ---- 툴 체인지 루틴 ---- #
-    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=200, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[0].offset(dz=50)) # xt60 커넥터 상공으로 위치
     print("[툴 체인지 루틴] 커넥터 전자석 상공으로 위치")
     

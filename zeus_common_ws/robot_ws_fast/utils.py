@@ -67,21 +67,6 @@ def move_to_home(rb):
 # -----------------------------
 # 포즈 정렬/변환
 # -----------------------------
-'''
-def cam_to_tcp(P_cam):
-    """
-    카메라[mm] -> TCP[mm] 좌표계 변환
-    R = diag(-1,-1,1), t = [+32.0, +40.0, -28.0]
-    """
-    R = [[-1,0,0],
-         [0,-1,0],
-         [0,0,1]]
-    t = [35.0-7.0, 30.0+19.0, -28.0]  # 현장 보정값
-    x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
-    y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
-    z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
-    return [x, y, z]
-'''
 
 def cam_to_tcp(P_cam):
     """
@@ -91,11 +76,27 @@ def cam_to_tcp(P_cam):
     R = [[-1,0,0],
          [0,-1,0],
          [0,0,1]]
-    t = [35.0 - 4 + 5, 40 + 8 -7, -28.0]  # 현장 보정값 -> x에 +0
+    t = [35.0-3, 30.0+19.0, -28.0]  # 현장 보정값
     x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
     y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
     z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
     return [x, y, z]
+
+
+# def cam_to_tcp(P_cam):
+#     """
+#     카메라[mm] -> TCP[mm] 좌표계 변환
+#     R = diag(-1,-1,1), t = [+32.0, +40.0, -28.0]
+#     """
+#     R = [[-1,0,0],
+#          [0,-1,0],
+#          [0,0,1]]
+#     # t = [35.0 - 4 + 5, 40 + 8 -7, -28.0]  # 현장 보정값 -> x에 +0
+#     t = [35.0 - 10, 40 + 8 -12, -28.0]
+#     x = R[0][0]*P_cam[0] + R[0][1]*P_cam[1] + R[0][2]*P_cam[2] + t[0]
+#     y = R[1][0]*P_cam[0] + R[1][1]*P_cam[1] + R[1][2]*P_cam[2] + t[1]
+#     z = R[2][0]*P_cam[0] + R[2][1]*P_cam[1] + R[2][2]*P_cam[2] + t[2]
+#     return [x, y, z]
 
 
 def wrap_deg(a):
@@ -230,7 +231,7 @@ def place_sequence(rb, target_tcp, delta_angle, lift=200.0, approach=30.0):
     cur = rb.getpos().pos2list()
     x, y, z, rz, ry, rx = cur[:6]
     rb.motionparam(MotionParam(jnt_speed=60, lin_speed=600, acctime=0.3, dacctime=0.3, posture=7))
-    rb.line(Position(x, y, z + 120.0, rz, ry, rx))  # 위로 120mm
+    rb.line(Position(x, y, z + 50.0, rz, ry, rx))  # 위로 120mm
    
     rb.join()
     rb.move(HOME_JOINT)
