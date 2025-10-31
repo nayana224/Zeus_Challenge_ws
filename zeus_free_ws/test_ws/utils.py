@@ -4,7 +4,7 @@ import time
 from i611_MCS import i611Robot, MotionParam, Joint, Position
 from i611_common import *
 from i611_io import *
-from comm import get_connector_type, servo_on, door_servo_on, convey_on, magnet_on, receive_from_pc
+from comm import get_connector_type, servo_on, door_servo_on, convey_on, magnet_on, receive_from_pc, ultra_start
 import shared
 
 HOME_JOINT = (75.57, 6.02, 69.57, 0.00, 104.41, 75.57)
@@ -193,6 +193,8 @@ def xt90_routine(rb):
             print("[MCU로부터 수신 루프] mcu_feedback 플래그 초기화함")
             break
         time.sleep(0.1)  # CPU 점유 방지 (10Hz)
+    time.sleep(3)
+    convey_on(5)
     
     # ---- 커넥터 체결 루틴 ---- #
     print("커넥터 체결 루틴 시작.")
@@ -206,13 +208,39 @@ def xt90_routine(rb):
     print("[커넥터 체결 루틴] 커넥터 체결을 위해 천천히 접근")
     
     print("[커넥터 체결 루틴] 전압 측정을 위한 딜레이 2초")
-    time.sleep(2)
     
+    time.sleep(1)
+    
+    
+    # ---- MCU 피드백 대기 루프 ---- #
+    print("[MCU로부터 수신 루프] Waiting for MCU feedback...")
+    while True:
+        if shared.mcu_feedback == 'p':  # 예: 초음파 감지 신호
+            print("[MCU로부터 수신 루프] MCU로부터 'p' 문자 수신 받음")
+            door_servo_on(7) # 초음파 감지 후, 바로 도어용 서보모터 닫기
+            
+            shared.mcu_feedback = None   # 처리 후 초기화
+            print("[MCU로부터 수신 루프] mcu_feedback 플래그 초기화함")
+            break
+        # elif
+        time.sleep(0.1)  # CPU 점유 방지 (10Hz)
+    
+
     # ---- 툴 원상복귀 루틴 ---- #
     rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[1].offset(dz=50)) # xt60 배터리 상공으로 위치
+    time.sleep(1) 
+    convey_on(4)
+    
+    
+
+    rb.motionparam(MotionParam(jnt_speed=5, lin_speed=100, acctime=0.3, dacctime=0.3))
     rb.line(p_xt60[1].offset(dz=50, dy=-100)) # 안전한 궤적으로 돌리기
     move_to_home(rb)
+    
+    
+    
+    
 
 def ec3_routine(rb):
     print("[EC3_ROUTINE] Started.")
