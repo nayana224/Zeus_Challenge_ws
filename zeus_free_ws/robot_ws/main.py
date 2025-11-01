@@ -69,7 +69,7 @@ def main():
                 elif shared.connector_type == "ec3":
                     ec3_routine(rb)
                     shared.connector_type = None
-                      
+                    
                 
             except Robot_emo:
                 print("[EMO] 비상정지 감지.")
@@ -85,6 +85,8 @@ def main():
                 print("[ERROR]", e)
                 shared.running = False
                 break
+            # 마무리
+            door_servo_on(6) # 도어용 서보모터 닫아 놓기
 
     finally:
         print("[FINAL] 안전 종료 절차 시작.")
